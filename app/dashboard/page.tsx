@@ -2,18 +2,31 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { cokeDrums, clients, inspections, physicalIndications, repairEvents } from "@/db/schema";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const session = await auth();
   const role = (session?.user as { role?: string })?.role || "CLIENT";
   const isMaster = role === "MASTER";
 
-  const drumsCount = (await db.select().from(cokeDrums)).length;
-  const clientsCount = (await db.select().from(clients)).length;
-  const inspectionsCount = (await db.select().from(inspections)).length;
-  const indicationsList = await db.select().from(physicalIndications);
-  const totalIndications = indicationsList.length;
-  const activeIndications = indicationsList.filter(i => i.status === 'ACTIVE').length;
-  const repairedCount = (await db.select().from(repairEvents)).length;
+  let drumsCount = 0;
+  let clientsCount = 0;
+  let inspectionsCount = 0;
+  let totalIndications = 0;
+  let activeIndications = 0;
+  let repairedCount = 0;
+
+  try {
+    drumsCount = (await db.select().from(cokeDrums)).length;
+    clientsCount = (await db.select().from(clients)).length;
+    inspectionsCount = (await db.select().from(inspections)).length;
+    const indicationsList = await db.select().from(physicalIndications);
+    totalIndications = indicationsList.length;
+    activeIndications = indicationsList.filter(i => i.status === 'ACTIVE').length;
+    repairedCount = (await db.select().from(repairEvents)).length;
+  } catch (err) {
+    console.error("Dashboard database query error:", err);
+  }
 
   return (
     <div className="space-y-6">
