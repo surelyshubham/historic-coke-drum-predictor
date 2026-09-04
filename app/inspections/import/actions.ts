@@ -19,6 +19,40 @@ export async function getDrumsAndWelds() {
   return { drums: drumsList, welds: weldsList };
 }
 
+// Helper to auto-detect header row
+function detectHeaderRow(aoa: unknown[][]): { headerIndex: number; headers: string[] } {
+  const commonHeaderKeywords = ["ind", "weld", "joint", "circ", "pos", "len", "dep", "thick", "type", "amp", "da", "pa", "no"];
+  
+  let bestRowIndex = 0;
+  let maxKeywordScore = -1;
+  let bestHeaders: string[] = [];
+
+  for (let r = 0; r < Math.min(15, aoa.length); r++) {
+    const row = aoa[r];
+    if (!Array.isArray(row)) continue;
+
+    let score = 0;
+    const currentHeaders = row.map((cell, cIdx) => {
+      const str = cell !== null && cell !== undefined ? String(cell).trim() : `Column_${cIdx + 1}`;
+      const lower = str.toLowerCase();
+      if (commonHeaderKeywords.some(k => lower.includes(k))) score += 2;
+      return str;
+    });
+
+    if (score > maxKeywordScore && currentHeaders.length > 2) {
+      maxKeywordScore = score;
+      bestRowIndex = r;
+      bestHeaders = currentHeaders;
+    }
+  }
+
+  if (bestHeaders.length === 0 && aoa.length > 0) {
+    bestHeaders = (aoa[0] || []).map((c, i) => String(c ?? `Column_${i + 1}`));
+  }
+
+  return { headerIndex: bestRowIndex, headers: bestHeaders };
+}
+
 export async function parseWorkbookFile(formData: FormData) {
   const session = await auth();
   if (session?.user?.role !== "MASTER") {
@@ -32,19 +66,35 @@ export async function parseWorkbookFile(formData: FormData) {
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
   const sheetNames = workbook.SheetNames;
-  const sheetsData: Record<string, { headers: string[]; rows: Record<string, unknown>[] }> = {};
+  const sheetsData: Record<string, {
+    detectedHeaderRow: number;
+    headers: string[];
+    sampleRows: Record<string, unknown>[];
+    allRows: Record<string, unknown>[];
+    totalRows: number;
+  }> = {};
 
   sheetNames.forEach((sheetName) => {
     const sheet = workbook.Sheets[sheetName];
-    const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-    const headers = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
-    
+    // Read raw sheet as Array of Arrays
+    const rawAoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+    const { headerIndex, headers } = detectHeaderRow(rawAoa);
+
+    // Convert sheet to JSON using detected headers
+    const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      range: headerIndex,
+      defval: "",
+    });
+
     sheetsData[sheetName] = {
+      detectedHeaderRow: headerIndex,
       headers,
-      rows: jsonData.slice(0, 100), // Preview up to 100 rows
+      sampleRows: jsonRows.slice(0, 5),
+      allRows: jsonRows,
+      totalRows: jsonRows.length,
     };
   });
 
@@ -59,14 +109,18 @@ export async function parseWorkbookFile(formData: FormData) {
 
 export async function validateDatasetAction(
   rows: Record<string, unknown>[],
-  fieldMapping: Record<string, string>
+  fieldMapping: Record<string, string>,
+  options?: {
+    headerRowIndex?: number;
+    validWeldNames?: string[];
+  }
 ) {
   const session = await auth();
   if (session?.user?.role !== "MASTER") {
     throw new Error("Unauthorized");
   }
 
-  return validateImportRows(rows, fieldMapping);
+  return validateImportRows(rows, fieldMapping, options);
 }
 
 export async function commitImportDatasetAction(payload: {
@@ -87,7 +141,7 @@ export async function commitImportDatasetAction(payload: {
 
   // 1. Get drum welds map
   const drumWelds = await db.select().from(weldJoints).where(eq(weldJoints.drumId, payload.drumId));
-  const weldMap = new Map(drumWelds.map(w => [w.name.toUpperCase(), w.id]));
+  const weldMap = new Map(drumWelds.map(w => [w.name.toUpperCase().replace(/[^A-Z0-9]/g, ''), w.id]));
   const defaultWeldId = drumWelds[0]?.id;
 
   // 2. Insert Inspection Campaign
@@ -113,9 +167,10 @@ export async function commitImportDatasetAction(payload: {
     uploadedBy: userId,
   });
 
-  // 4. Batch insert observations
+  // 4. Batch insert observations (in chunks of 200 for DB safety)
   const obsValues = payload.validRows.map(row => {
-    const matchedWeldId = weldMap.get(row.weldName.toUpperCase()) || defaultWeldId;
+    const normName = row.weldName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const matchedWeldId = weldMap.get(normName) || defaultWeldId;
     return {
       inspectionId: newInspection.id,
       sourceIndicationNumber: row.sourceIndicationNumber,
@@ -130,8 +185,12 @@ export async function commitImportDatasetAction(payload: {
     };
   });
 
-  if (obsValues.length > 0) {
-    await db.insert(inspectionObservations).values(obsValues);
+  const chunkSize = 200;
+  for (let i = 0; i < obsValues.length; i += chunkSize) {
+    const chunk = obsValues.slice(i, i + chunkSize);
+    if (chunk.length > 0) {
+      await db.insert(inspectionObservations).values(chunk);
+    }
   }
 
   // 5. Audit Log Entry
