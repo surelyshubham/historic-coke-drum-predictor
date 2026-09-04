@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/layout/AppShell";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function AnalysisLayout({ children }: { children: React.ReactNode }) {
   return <AppShell>{children}</AppShell>;
 }
