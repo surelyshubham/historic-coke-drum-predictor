@@ -26,20 +26,32 @@ export interface UnpivotedObservation {
   isAfterRepair?: boolean;
 }
 
+export interface TrackedPhysicalIndication {
+  code: string;
+  drumName: string;
+  weldName: string;
+  segment: string;
+  locationText: string;
+  circumferentialPosition: number;
+  weldPosition: string;
+  indicationType: string;
+  hasRepairs: boolean;
+  latestLength: number;
+  latestDepth: number;
+  earliestLength: number;
+  growthDelta: number;
+  growthRateYear: number;
+  observationsCount: number;
+  campaignValues: Record<string, { length: number | null; depth: number | null }>;
+}
+
 export interface MatrixParseResult {
   isMatrixFormat: boolean;
   campaigns: MatrixCampaignDef[];
-  physicalIndications: Array<{
-    code: string;
-    drumName: string;
-    weldName: string;
-    locationText: string;
-    circumferentialPosition: number;
-    weldPosition: string;
-    indicationType: string;
-    hasRepairs: boolean;
-    observationsCount: number;
-  }>;
+  availableDrums: string[];
+  availableWelds: string[];
+  weldsByDrum: Record<string, string[]>;
+  physicalIndications: TrackedPhysicalIndication[];
   observations: UnpivotedObservation[];
   totalRows: number;
 }
@@ -97,7 +109,6 @@ export function discoverCampaignsFromHeaders(headers: string[]): MatrixCampaignD
     const isDepthId = up.includes('DEPTH') && up.includes('ID');
     const isAfterRepair = up.includes('AFTER REPAIR') || up.includes('REPAIR');
 
-    // Extract campaign tokens
     const tokens = ['OCT-23', 'APRIL-24', 'APR-24', 'SEP-24', 'MAY-25', 'SEP-OCT-2025', 'SEP-OCT', 'DEC-2025', 'DEC-25', 'FEB-2026', 'FEB-26', 'MAY-2026', 'MAY-26', 'JULY-2026', 'JUL-26', 'AUGUST-2026', 'AUG-26', 'DEC-24'];
     
     let matchedToken = '';
@@ -143,7 +154,6 @@ function parseMeasurement(val: unknown): number | null {
   const str = String(val).trim().toUpperCase();
   if (['NIL', 'NOT DONE', 'NOT APPLICABLE', 'NA', 'N/A', '-', '—', 'NONE'].includes(str)) return null;
 
-  // If format is like "22-28", return average or max depth
   if (str.includes('-')) {
     const parts = str.split('-').map(p => parseFloat(p.replace(/[^0-9.]/g, '')));
     if (!isNaN(parts[0]) && !isNaN(parts[1])) {
@@ -180,17 +190,10 @@ export function parseMatrixRows(
   campaigns: MatrixCampaignDef[]
 ): MatrixParseResult {
   const observations: UnpivotedObservation[] = [];
-  const piMap = new Map<string, {
-    code: string;
-    drumName: string;
-    weldName: string;
-    locationText: string;
-    circumferentialPosition: number;
-    weldPosition: string;
-    indicationType: string;
-    hasRepairs: boolean;
-    observationsCount: number;
-  }>();
+  const piMap = new Map<string, TrackedPhysicalIndication>();
+  const allDrumsSet = new Set<string>();
+  const allWeldsSet = new Set<string>();
+  const weldsByDrumMap: Record<string, Set<string>> = {};
 
   // Find metadata columns
   const drumCol = headers.find(h => h.toUpperCase().includes('DRUM')) || headers[0];
@@ -200,11 +203,20 @@ export function parseMatrixRows(
   const weldPosCol = headers.find(h => h.toUpperCase().includes('DEFECT POSITION') || h.toUpperCase().includes('BOTTOM TOE'));
 
   rows.forEach((row, rowIdx) => {
-    const drumName = String(row[drumCol] ?? 'C04').trim();
-    const weldName = String(row[weldCol] ?? 'C6').trim();
+    let drumName = String(row[drumCol] ?? 'C04').trim().toUpperCase();
+    if (!drumName || drumName === 'UNDEFINED') drumName = 'C04';
+
+    let weldName = String(row[weldCol] ?? 'C6').trim().toUpperCase();
+    if (!weldName || weldName === 'UNDEFINED') weldName = 'C6';
+
     const segment = String(row[segmentCol] ?? '').trim();
     const indicationType = typeCol && row[typeCol] ? String(row[typeCol]).trim() : 'Crack-like';
     const weldPosition = weldPosCol && row[weldPosCol] ? String(row[weldPosCol]).trim() : 'Weld';
+
+    allDrumsSet.add(drumName);
+    allWeldsSet.add(weldName);
+    if (!weldsByDrumMap[drumName]) weldsByDrumMap[drumName] = new Set<string>();
+    weldsByDrumMap[drumName].add(weldName);
 
     // Find first valid defect location across campaigns for this row
     let bestLocationText = '';
@@ -232,6 +244,9 @@ export function parseMatrixRows(
 
     let rowObsCount = 0;
     let hasRepairs = false;
+    const campaignValues: Record<string, { length: number | null; depth: number | null }> = {};
+    const recordedLengths: Array<{ date: string; len: number }> = [];
+    let latestDepth = 3.0;
 
     // Unpivot observations across campaigns
     campaigns.forEach(camp => {
@@ -240,7 +255,6 @@ export function parseMatrixRows(
         length = parseMeasurement(row[camp.lengthCol]);
       }
 
-      // If length is null, check if location column has length range (e.g. 7400-8400 -> 1000mm)
       if (!length && camp.locationCol && row[camp.locationCol]) {
         const locStr = String(row[camp.locationCol]).trim();
         if (locStr.includes('-')) {
@@ -251,15 +265,17 @@ export function parseMatrixRows(
         }
       }
 
+      let depth: number | null = null;
+      if (camp.depthOdCol && row[camp.depthOdCol]) {
+        depth = parseMeasurement(row[camp.depthOdCol]);
+      } else if (camp.depthIdCol && row[camp.depthIdCol]) {
+        depth = parseMeasurement(row[camp.depthIdCol]);
+      }
+
       if (length && length > 0) {
-        let depth = 4.0; // default conservative nominal depth if not reported
-        if (camp.depthOdCol && row[camp.depthOdCol]) {
-          const d = parseMeasurement(row[camp.depthOdCol]);
-          if (d) depth = d;
-        } else if (camp.depthIdCol && row[camp.depthIdCol]) {
-          const d = parseMeasurement(row[camp.depthIdCol]);
-          if (d) depth = d;
-        }
+        const effectiveDepth = depth || 3.0;
+        latestDepth = effectiveDepth;
+        recordedLengths.push({ date: camp.date, len: length });
 
         if (camp.isAfterRepair) hasRepairs = true;
 
@@ -274,28 +290,50 @@ export function parseMatrixRows(
           locationText: bestLocationText,
           circumferentialPosition: bestCircPos,
           length,
-          depth,
+          depth: effectiveDepth,
           weldPosition,
           indicationType,
           isAfterRepair: camp.isAfterRepair,
         });
 
+        campaignValues[camp.key] = { length, depth: effectiveDepth };
         rowObsCount++;
+      } else {
+        campaignValues[camp.key] = { length: null, depth: null };
       }
     });
 
     if (rowObsCount > 0) {
+      const earliestLength = recordedLengths[0]?.len || 0;
+      const latestLength = recordedLengths[recordedLengths.length - 1]?.len || 0;
+      const growthDelta = latestLength - earliestLength;
+
+      let growthRateYear = 0;
+      if (recordedLengths.length >= 2) {
+        const d1 = new Date(recordedLengths[0].date).getTime();
+        const d2 = new Date(recordedLengths[recordedLengths.length - 1].date).getTime();
+        const years = (d2 - d1) / (1000 * 60 * 60 * 24 * 365.25);
+        if (years > 0) growthRateYear = Math.round((growthDelta / years) * 10) / 10;
+      }
+
       if (!piMap.has(piCode)) {
         piMap.set(piCode, {
           code: piCode,
           drumName,
           weldName,
+          segment,
           locationText: bestLocationText,
           circumferentialPosition: bestCircPos,
           weldPosition,
           indicationType,
           hasRepairs,
+          latestLength,
+          latestDepth,
+          earliestLength,
+          growthDelta,
+          growthRateYear,
           observationsCount: rowObsCount,
+          campaignValues,
         });
       } else {
         const existing = piMap.get(piCode)!;
@@ -305,9 +343,17 @@ export function parseMatrixRows(
     }
   });
 
+  const weldsByDrum: Record<string, string[]> = {};
+  for (const [d, wSet] of Object.entries(weldsByDrumMap)) {
+    weldsByDrum[d] = Array.from(wSet).sort();
+  }
+
   return {
     isMatrixFormat: true,
     campaigns,
+    availableDrums: Array.from(allDrumsSet).sort(),
+    availableWelds: Array.from(allWeldsSet).sort(),
+    weldsByDrum,
     physicalIndications: Array.from(piMap.values()),
     observations,
     totalRows: rows.length,
