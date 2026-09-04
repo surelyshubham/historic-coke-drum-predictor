@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { LayoutDashboard, Database, Activity, FileText, Settings, Users, Upload } from "lucide-react";
+import { LayoutDashboard, Database, Activity, FileText, Settings, Users, Upload, TrendingUp } from "lucide-react";
 
 export function Sidebar({ role }: { role: string }) {
   const isMaster = role === "MASTER";
@@ -29,6 +29,11 @@ export function Sidebar({ role }: { role: string }) {
             </Link>
           </>
         )}
+
+        <Link href="/analysis" className="flex items-center space-x-3 px-3 py-2 rounded-md hover:bg-sky-100 text-sky-900 font-semibold">
+          <TrendingUp size={20} />
+          <span>Historical Analysis</span>
+        </Link>
 
         <Link href="/drums" className="flex items-center space-x-3 px-3 py-2 rounded-md hover:bg-sky-100 text-slate-700">
           <Database size={20} />
