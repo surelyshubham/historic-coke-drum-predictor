@@ -11,6 +11,9 @@ import {
 import { MatrixParseResult, TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 import { WeldCircumferentialMap } from "@/components/visualization/weldCircumferentialMap";
 import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
+import { WeldWidthPlanPlot } from "@/components/visualization/WeldWidthPlanPlot";
+import { PolarCircumferentialRingMap } from "@/components/visualization/PolarCircumferentialRingMap";
+import { WeldBevelSScanProfile } from "@/components/visualization/WeldBevelSScanProfile";
 import { HistoricalMeasurement } from "@/lib/prediction/growthModel";
 import Link from "next/link";
 import { 
@@ -22,11 +25,15 @@ import {
   ArrowLeft, 
   Filter, 
   FileText, 
-  Sparkles,
-  Database,
-  Sliders,
-  TrendingUp,
-  Download
+  Sparkles, 
+  Database, 
+  Sliders, 
+  TrendingUp, 
+  Download,
+  CircleDot,
+  Maximize2,
+  Crosshair,
+  Layers
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -48,6 +55,7 @@ export default function ImportWizardPage() {
   const [selectedTanks, setSelectedTanks] = useState<string[]>([]); // ["ALL"] or ["R01", "R02", ...]
   const [selectedWelds, setSelectedWelds] = useState<string[]>([]); // ["ALL"] or ["C6", ...]
   const [selectedCampaign, setSelectedCampaign] = useState<string>("ALL"); // "ALL" or specific campaign key
+  const [visualizerTab, setVisualizerTab] = useState<"POLAR_RING" | "WELD_WIDTH" | "BEVEL_SLICE" | "GROWTH_CURVE" | "UNROLLED_RIBBON">("POLAR_RING");
 
   // Loading & Action states
   const [loading, setLoading] = useState(false);
@@ -551,53 +559,137 @@ export default function ImportWizardPage() {
             </div>
           </div>
 
-          {/* 2D Circumferential Weld Map Component */}
-          <WeldCircumferentialMap
-            indications={filteredIndications}
-            selectedCampaign={selectedCampaign}
-            campaigns={matrixResult.campaigns}
-            activeDrumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}
-            activeWeldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}
-            onSelectIndication={(pi) => setSelectedFlawForForecast(pi)}
-            selectedIndicationCode={activeFlaw?.code}
-          />
+          {/* Engineering Visualizer Navigation Tabs */}
+          <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-xs flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setVisualizerTab("POLAR_RING")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  visualizerTab === "POLAR_RING"
+                    ? "bg-sky-600 text-white shadow-xs"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <CircleDot size={14} />
+                <span>360° Circular Ring (Image 2)</span>
+              </button>
 
-          {/* Predictive Growth & Forecast Chart for the selected flaw */}
-          {activeFlaw && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-sky-600 animate-pulse"></span>
-                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                    Interactive Flaw Growth Curve & Predictive Forecast
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 font-medium">Select Flaw:</span>
-                  <select
-                    value={activeFlaw.code}
-                    onChange={(e) => {
-                      const found = filteredIndications.find(i => i.code === e.target.value);
-                      if (found) setSelectedFlawForForecast(found);
-                    }}
-                    className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-sky-800 bg-white shadow-xs focus:ring-1 focus:ring-sky-500"
-                  >
-                    {filteredIndications.map(pi => (
-                      <option key={pi.code} value={pi.code}>
-                        {pi.code} ({pi.drumName}-{pi.weldName} @ {pi.locationText})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              <button
+                onClick={() => setVisualizerTab("WELD_WIDTH")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  visualizerTab === "WELD_WIDTH"
+                    ? "bg-sky-600 text-white shadow-xs"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <Maximize2 size={14} />
+                <span>Weld Width Plan (Image 1)</span>
+              </button>
 
-              <PredictiveForecastChart
-                measurements={getMeasurementsForFlaw(activeFlaw)}
-                flawCode={activeFlaw.code}
-                locationInfo={`${activeFlaw.drumName} — Joint ${activeFlaw.weldName} @ ${activeFlaw.locationText}`}
-                nominalThickness={32.0}
-              />
+              <button
+                onClick={() => setVisualizerTab("BEVEL_SLICE")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  visualizerTab === "BEVEL_SLICE"
+                    ? "bg-sky-600 text-white shadow-xs"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <Crosshair size={14} />
+                <span>Bevel S-Scan Profile (Image 3)</span>
+              </button>
+
+              <button
+                onClick={() => setVisualizerTab("GROWTH_CURVE")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  visualizerTab === "GROWTH_CURVE"
+                    ? "bg-sky-600 text-white shadow-xs"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <TrendingUp size={14} />
+                <span>Growth & Predictive Forecast</span>
+              </button>
+
+              <button
+                onClick={() => setVisualizerTab("UNROLLED_RIBBON")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  visualizerTab === "UNROLLED_RIBBON"
+                    ? "bg-sky-600 text-white shadow-xs"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <Layers size={14} />
+                <span>Unrolled 2D Ribbon</span>
+              </button>
             </div>
+
+            {/* Quick Flaw Selector */}
+            {activeFlaw && (
+              <div className="flex items-center gap-1.5 pr-2">
+                <span className="text-xs text-slate-500 font-medium">Selected Flaw:</span>
+                <select
+                  value={activeFlaw.code}
+                  onChange={(e) => {
+                    const found = filteredIndications.find(i => i.code === e.target.value);
+                    if (found) setSelectedFlawForForecast(found);
+                  }}
+                  className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-sky-800 bg-slate-50 shadow-xs focus:ring-1 focus:ring-sky-500"
+                >
+                  {filteredIndications.map(pi => (
+                    <option key={pi.code} value={pi.code}>
+                      {pi.code} ({pi.drumName}-{pi.weldName} @ {pi.locationText})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Active Visualization Display */}
+          {visualizerTab === "POLAR_RING" && (
+            <PolarCircumferentialRingMap
+              indications={filteredIndications}
+              selectedFlawCode={activeFlaw?.code}
+              onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
+              drumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}
+              weldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}
+            />
+          )}
+
+          {visualizerTab === "WELD_WIDTH" && (
+            <WeldWidthPlanPlot
+              indications={filteredIndications}
+              selectedFlawCode={activeFlaw?.code}
+              onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
+            />
+          )}
+
+          {visualizerTab === "BEVEL_SLICE" && activeFlaw && (
+            <WeldBevelSScanProfile
+              indication={activeFlaw}
+              nominalWallThickness={32.0}
+            />
+          )}
+
+          {visualizerTab === "GROWTH_CURVE" && activeFlaw && (
+            <PredictiveForecastChart
+              measurements={getMeasurementsForFlaw(activeFlaw)}
+              flawCode={activeFlaw.code}
+              locationInfo={`${activeFlaw.drumName} — Joint ${activeFlaw.weldName} @ ${activeFlaw.locationText}`}
+              nominalThickness={32.0}
+            />
+          )}
+
+          {visualizerTab === "UNROLLED_RIBBON" && (
+            <WeldCircumferentialMap
+              indications={filteredIndications}
+              selectedCampaign={selectedCampaign}
+              campaigns={matrixResult.campaigns}
+              activeDrumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}
+              activeWeldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}
+              onSelectIndication={(pi) => setSelectedFlawForForecast(pi)}
+              selectedIndicationCode={activeFlaw?.code}
+            />
           )}
 
           {/* Detailed Historical Inspection Observations Matrix Table */}
