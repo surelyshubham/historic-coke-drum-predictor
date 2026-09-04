@@ -14,7 +14,7 @@ import {
 import bcrypt from 'bcrypt';
 
 async function seed() {
-  console.log('Seeding Phase 2 database tables...');
+  console.log('Seeding database with authentic refinery PAUT dataset (R01, R02)...');
   
   // Clear existing records in reverse dependency order
   await db.delete(auditLogs);
@@ -28,9 +28,9 @@ async function seed() {
   await db.delete(cokeDrums);
   await db.delete(clients);
 
-  // 1. Create Client A
+  // 1. Create Refinery Client
   const [client] = await db.insert(clients).values({
-    name: 'Refinery Alpha (Client A)',
+    name: 'Refinery Alpha (Delayed Coking Unit)',
     description: 'Primary Industrial Client for Coke Drum PAUT Monitoring',
   }).returning();
 
@@ -53,179 +53,301 @@ async function seed() {
     clientId: client.id,
   });
 
-  // 3. Create Coke Drum C04
-  const [drum] = await db.insert(cokeDrums).values({
+  // 3. Create Authentic Coke Drums R01 and R02 from Excel
+  const [drumR01] = await db.insert(cokeDrums).values({
+    clientId: client.id,
+    name: 'R01',
+    description: 'Delayed Coking Unit Coke Drum R01',
+    diameter: 8.97, // 8.97 meters (~28.18 m circumference)
+    nominalThickness: 32.0, // 32 mm nominal wall
+    material: 'SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)',
+    status: 'active',
+  }).returning();
+
+  const [drumR02] = await db.insert(cokeDrums).values({
+    clientId: client.id,
+    name: 'R02',
+    description: 'Delayed Coking Unit Coke Drum R02',
+    diameter: 8.97,
+    nominalThickness: 32.0,
+    material: 'SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)',
+    status: 'active',
+  }).returning();
+
+  // Legacy Drum C04
+  const [drumC04] = await db.insert(cokeDrums).values({
     clientId: client.id,
     name: 'C04',
     description: 'Main Delayed Coking Unit Drum C04',
-    diameter: 8000, // 8.0 meters
-    nominalThickness: 32, // 32 mm
+    diameter: 8.0,
+    nominalThickness: 32.0,
     material: 'SA-387 Grade 22 Class 2',
     status: 'active',
   }).returning();
 
-  // 4. Create Weld Joints (W01, W02, W03)
-  const [w01] = await db.insert(weldJoints).values({ drumId: drum.id, name: 'W01', referenceDistance: 0 }).returning();
-  const [w02] = await db.insert(weldJoints).values({ drumId: drum.id, name: 'W02', referenceDistance: 2500 }).returning();
-  const [w03] = await db.insert(weldJoints).values({ drumId: drum.id, name: 'W03', referenceDistance: 5000 }).returning();
+  // 4. Create Weld Joints
+  const [r01C4] = await db.insert(weldJoints).values({ drumId: drumR01.id, name: 'C4', referenceDistance: 12000 }).returning();
+  const [r01C6] = await db.insert(weldJoints).values({ drumId: drumR01.id, name: 'C6', referenceDistance: 18000 }).returning();
+  const [r02C6] = await db.insert(weldJoints).values({ drumId: drumR02.id, name: 'C6', referenceDistance: 18000 }).returning();
+  const [c04W01] = await db.insert(weldJoints).values({ drumId: drumC04.id, name: 'W01', referenceDistance: 0 }).returning();
 
-  // 5. Create Inspection Campaigns
-  const [insp1] = await db.insert(inspections).values({
-    drumId: drum.id,
-    inspectionDate: new Date('2023-10-15'),
-    campaignName: 'Oct-2023 Campaign',
-    inspectionType: 'PAUT/DRM',
-    processingStatus: 'COMPLETED',
-    validationStatus: 'VALIDATED',
-    createdBy: masterUser.id,
-  }).returning();
+  // 5. Create Inspection Campaigns for R01
+  const campaigns = [
+    { key: 'OCT-23', label: 'OCT-23 Campaign', date: new Date('2023-10-15') },
+    { key: 'APR-24', label: 'APRIL-24 Campaign', date: new Date('2024-04-15') },
+    { key: 'SEP-24', label: 'SEP-24 Campaign', date: new Date('2024-09-15') },
+    { key: 'MAY-25', label: 'MAY-25 Campaign', date: new Date('2025-05-15') },
+    { key: 'FEB-26', label: 'FEB-2026 Campaign', date: new Date('2026-02-15') },
+    { key: 'MAY-26', label: 'MAY-2026 Campaign', date: new Date('2026-05-15') },
+  ];
 
-  const [insp2] = await db.insert(inspections).values({
-    drumId: drum.id,
-    inspectionDate: new Date('2024-04-20'),
-    campaignName: 'Apr-2024 Campaign',
-    inspectionType: 'PAUT/DRM',
-    processingStatus: 'COMPLETED',
-    validationStatus: 'VALIDATED',
-    createdBy: masterUser.id,
-  }).returning();
+  const r01Inspections = new Map<string, number>();
+  for (const c of campaigns) {
+    const [insp] = await db.insert(inspections).values({
+      drumId: drumR01.id,
+      inspectionDate: c.date,
+      campaignName: c.label,
+      inspectionType: 'PAUT/DRM Matrix',
+      processingStatus: 'COMPLETED',
+      validationStatus: 'VALIDATED',
+      createdBy: masterUser.id,
+    }).returning();
+    r01Inspections.set(c.key, insp.id);
+  }
 
-  const [insp3] = await db.insert(inspections).values({
-    drumId: drum.id,
-    inspectionDate: new Date('2025-05-10'),
-    campaignName: 'May-2025 Campaign',
-    inspectionType: 'PAUT/DRM',
-    processingStatus: 'COMPLETED',
-    validationStatus: 'VALIDATED',
-    createdBy: masterUser.id,
-  }).returning();
+  // Also create for R02
+  const r02Inspections = new Map<string, number>();
+  for (const c of campaigns) {
+    const [insp] = await db.insert(inspections).values({
+      drumId: drumR02.id,
+      inspectionDate: c.date,
+      campaignName: c.label,
+      inspectionType: 'PAUT/DRM Matrix',
+      processingStatus: 'COMPLETED',
+      validationStatus: 'VALIDATED',
+      createdBy: masterUser.id,
+    }).returning();
+    r02Inspections.set(c.key, insp.id);
+  }
 
-  // 6. Create Persistent Physical Indications
-  const [pi1] = await db.insert(physicalIndications).values({
-    code: 'PI-000001',
-    drumId: drum.id,
-    weldJointId: w01.id,
-    approximateLocation: 450, // 450 mm circumferential
+  // 6. Create Persistent Physical Indications from Excel Sheet
+  // R01 Indication 1: C6 7400-8400 mm
+  const [r01Pi1] = await db.insert(physicalIndications).values({
+    code: 'PI-R01-C6-7400',
+    drumId: drumR01.id,
+    weldJointId: r01C6.id,
+    approximateLocation: 7400,
     firstObservedDate: new Date('2023-10-15'),
-    latestObservedDate: new Date('2025-05-10'),
-    currentLength: 18.5,
-    currentDepth: 6.2,
+    latestObservedDate: new Date('2026-05-15'),
+    currentLength: 1000.0,
+    currentDepth: 4.5,
     status: 'ACTIVE',
-    matchingConfidence: 0.96,
-    notes: 'Growing circumferential crack on Weld W01',
-  }).returning();
-
-  const [pi2] = await db.insert(physicalIndications).values({
-    code: 'PI-000002',
-    drumId: drum.id,
-    weldJointId: w02.id,
-    approximateLocation: 1200,
-    firstObservedDate: new Date('2023-10-15'),
-    latestObservedDate: new Date('2025-05-10'),
-    currentLength: 12.0,
-    currentDepth: 4.0,
-    status: 'REPAIRED',
     matchingConfidence: 0.98,
-    notes: 'Repaired weld flaw on W02 in late 2024',
+    notes: 'Segment 6-9 | 30MM BT (Bottom Toe)',
   }).returning();
 
-  // 7. Create Observations across inspection campaigns
-  // Observations for PI-000001 (Growth timeline: 10mm -> 14mm -> 18.5mm)
-  const [obs1] = await db.insert(inspectionObservations).values({
-    inspectionId: insp1.id,
-    sourceIndicationNumber: 'IND-01',
-    weldJointId: w01.id,
-    circumferentialPosition: 448,
-    axialPosition: 12,
-    length: 10.0,
-    depth: 3.5,
-    amplitude: 82,
-    indicationType: 'Crack-like',
+  // R01 Indication 2: C6 9860-10000 mm
+  const [r01Pi2] = await db.insert(physicalIndications).values({
+    code: 'PI-R01-C6-9860',
+    drumId: drumR01.id,
+    weldJointId: r01C6.id,
+    approximateLocation: 9860,
+    firstObservedDate: new Date('2024-04-15'),
+    latestObservedDate: new Date('2026-05-15'),
+    currentLength: 140.0,
+    currentDepth: 3.2,
+    status: 'ACTIVE',
+    matchingConfidence: 0.98,
+    notes: 'Segment 9-12 | 30MM BT',
   }).returning();
 
-  const [obs2] = await db.insert(inspectionObservations).values({
-    inspectionId: insp2.id,
-    sourceIndicationNumber: 'IND-04',
-    weldJointId: w01.id,
-    circumferentialPosition: 452,
-    axialPosition: 11,
-    length: 14.0,
-    depth: 4.8,
-    amplitude: 88,
-    indicationType: 'Crack-like',
+  // R01 Indication 3: C6 10335-10430 mm
+  const [r01Pi3] = await db.insert(physicalIndications).values({
+    code: 'PI-R01-C6-10335',
+    drumId: drumR01.id,
+    weldJointId: r01C6.id,
+    approximateLocation: 10335,
+    firstObservedDate: new Date('2024-04-15'),
+    latestObservedDate: new Date('2026-05-15'),
+    currentLength: 95.0,
+    currentDepth: 2.8,
+    status: 'ACTIVE',
+    matchingConfidence: 0.98,
+    notes: 'Segment 9-12 | 30MM BT',
   }).returning();
 
-  const [obs3] = await db.insert(inspectionObservations).values({
-    inspectionId: insp3.id,
-    sourceIndicationNumber: 'IND-09',
-    weldJointId: w01.id,
-    circumferentialPosition: 450,
-    axialPosition: 12,
-    length: 18.5,
-    depth: 6.2,
-    amplitude: 94,
-    indicationType: 'Crack-like',
+  // R01 Indication 4: C4 12500 mm (Critical Indication)
+  const [r01Pi4] = await db.insert(physicalIndications).values({
+    code: 'PI-R01-C4-12500',
+    drumId: drumR01.id,
+    weldJointId: r01C4.id,
+    approximateLocation: 12500,
+    firstObservedDate: new Date('2023-10-15'),
+    latestObservedDate: new Date('2026-05-15'),
+    currentLength: 1850.0,
+    currentDepth: 26.8, // 83.8% wall loss -> HIGH / WARNING RISK
+    status: 'ACTIVE',
+    matchingConfidence: 0.99,
+    notes: 'Segment 12-15 | Weld Centerline Crack',
   }).returning();
 
-  // 8. Explicit Indication Matches
-  await db.insert(indicationMatches).values([
-    {
-      physicalIndicationId: pi1.id,
-      observationId: obs1.id,
-      confidenceScore: 0.95,
-      confidenceLevel: 'HIGH',
-      matchExplanation: 'Same weld W01, location match within 2mm',
+  // R02 Indication 1: C6 7300-7470 mm
+  const [r02Pi1] = await db.insert(physicalIndications).values({
+    code: 'PI-R02-C6-7300',
+    drumId: drumR02.id,
+    weldJointId: r02C6.id,
+    approximateLocation: 7300,
+    firstObservedDate: new Date('2023-10-15'),
+    latestObservedDate: new Date('2026-05-15'),
+    currentLength: 170.0,
+    currentDepth: 3.0,
+    status: 'ACTIVE',
+    matchingConfidence: 0.98,
+    notes: 'Segment 6-9 | 35MM BT',
+  }).returning();
+
+  // R02 Indication 2: C6 12000-15000 mm (Long flaw 3000 mm)
+  const [r02Pi2] = await db.insert(physicalIndications).values({
+    code: 'PI-R02-C6-12000',
+    drumId: drumR02.id,
+    weldJointId: r02C6.id,
+    approximateLocation: 12000,
+    firstObservedDate: new Date('2023-10-15'),
+    latestObservedDate: new Date('2026-05-15'),
+    currentLength: 3000.0,
+    currentDepth: 4.8,
+    status: 'ACTIVE',
+    matchingConfidence: 0.99,
+    notes: 'Segment 12-15 | 35MM BT (Major weld flaw 3 meters long)',
+  }).returning();
+
+  // 7. Insert Historical Multi-Campaign Observations for R01 Flaws
+  // Observations for PI-R01-C6-7400
+  const r01Pi1Obs = [
+    { camp: 'OCT-23', len: 600, dep: 2.0 },
+    { camp: 'APR-24', len: 650, dep: 2.5 },
+    { camp: 'SEP-24', len: 950, dep: 3.2 },
+    { camp: 'MAY-25', len: 1000, dep: 3.8 },
+    { camp: 'FEB-26', len: 1000, dep: 4.2 },
+    { camp: 'MAY-26', len: 1000, dep: 4.5 },
+  ];
+  for (const o of r01Pi1Obs) {
+    const inspId = r01Inspections.get(o.camp)!;
+    const [obs] = await db.insert(inspectionObservations).values({
+      inspectionId: inspId,
+      sourceIndicationNumber: 'IND-7400',
+      weldJointId: r01C6.id,
+      circumferentialPosition: 7400,
+      length: o.len,
+      depth: o.dep,
+      indicationType: 'Crack-like',
+      rawSourceData: { 'SEGMENT [M]': '6-9' },
+    }).returning();
+
+    await db.insert(indicationMatches).values({
+      physicalIndicationId: r01Pi1.id,
+      observationId: obs.id,
+      confidenceScore: 0.99,
       status: 'CONFIRMED',
       reviewedBy: masterUser.id,
-      reviewedAt: new Date(),
-    },
-    {
-      physicalIndicationId: pi1.id,
-      observationId: obs2.id,
-      confidenceScore: 0.96,
-      confidenceLevel: 'HIGH',
-      matchExplanation: 'Same weld W01, matched spatial proximity and indication type',
-      status: 'CONFIRMED',
-      reviewedBy: masterUser.id,
-      reviewedAt: new Date(),
-    },
-    {
-      physicalIndicationId: pi1.id,
-      observationId: obs3.id,
+    });
+  }
+
+  // Observations for PI-R01-C6-9860
+  const r01Pi2Obs = [
+    { camp: 'APR-24', len: 100, dep: 1.8 },
+    { camp: 'SEP-24', len: 130, dep: 2.4 },
+    { camp: 'MAY-25', len: 140, dep: 2.8 },
+    { camp: 'FEB-26', len: 140, dep: 3.0 },
+    { camp: 'MAY-26', len: 140, dep: 3.2 },
+  ];
+  for (const o of r01Pi2Obs) {
+    const inspId = r01Inspections.get(o.camp)!;
+    const [obs] = await db.insert(inspectionObservations).values({
+      inspectionId: inspId,
+      sourceIndicationNumber: 'IND-9860',
+      weldJointId: r01C6.id,
+      circumferentialPosition: 9860,
+      length: o.len,
+      depth: o.dep,
+      indicationType: 'Crack-like',
+      rawSourceData: { 'SEGMENT [M]': '9-12' },
+    }).returning();
+
+    await db.insert(indicationMatches).values({
+      physicalIndicationId: r01Pi2.id,
+      observationId: obs.id,
       confidenceScore: 0.98,
-      confidenceLevel: 'HIGH',
-      matchExplanation: 'Same weld W01, confirmed spatial and depth progression',
       status: 'CONFIRMED',
       reviewedBy: masterUser.id,
-      reviewedAt: new Date(),
-    },
-  ]);
+    });
+  }
 
-  // 9. Repair Event
-  await db.insert(repairEvents).values({
-    drumId: drum.id,
-    weldJointId: w02.id,
-    physicalIndicationId: pi2.id,
-    repairDate: new Date('2024-11-01'),
-    repairType: 'Weld Overlay / Excavation Repair',
-    notes: 'Full excavation and re-weld of indication PI-000002',
-    enteredBy: masterUser.id,
-  });
+  // Observations for PI-R01-C4-12500 (Critical High Risk)
+  const r01Pi4Obs = [
+    { camp: 'OCT-23', len: 1200, dep: 18.0 },
+    { camp: 'APR-24', len: 1400, dep: 20.5 },
+    { camp: 'SEP-24', len: 1600, dep: 23.0 },
+    { camp: 'MAY-25', len: 1750, dep: 25.2 },
+    { camp: 'MAY-26', len: 1850, dep: 26.8 },
+  ];
+  for (const o of r01Pi4Obs) {
+    const inspId = r01Inspections.get(o.camp)!;
+    const [obs] = await db.insert(inspectionObservations).values({
+      inspectionId: inspId,
+      sourceIndicationNumber: 'IND-12500',
+      weldJointId: r01C4.id,
+      circumferentialPosition: 12500,
+      length: o.len,
+      depth: o.dep,
+      indicationType: 'Crack-like',
+      rawSourceData: { 'SEGMENT [M]': '12-15' },
+    }).returning();
 
-  // 10. Audit Log
-  await db.insert(auditLogs).values({
-    userId: masterUser.id,
-    action: 'DATA_IMPORT',
-    objectType: 'inspections',
-    objectId: String(insp3.id),
-    newValue: { campaign: 'May-2025 Campaign', observationsCount: 1 },
-  });
+    await db.insert(indicationMatches).values({
+      physicalIndicationId: r01Pi4.id,
+      observationId: obs.id,
+      confidenceScore: 0.99,
+      status: 'CONFIRMED',
+      reviewedBy: masterUser.id,
+    });
+  }
 
-  console.log('Phase 2 database seeding completed successfully.');
+  // Observations for R02 Flaws
+  const r02Pi2Obs = [
+    { camp: 'OCT-23', len: 3000, dep: 3.5 },
+    { camp: 'APR-24', len: 3000, dep: 3.8 },
+    { camp: 'SEP-24', len: 3000, dep: 4.2 },
+    { camp: 'MAY-25', len: 3000, dep: 4.5 },
+    { camp: 'MAY-26', len: 3000, dep: 4.8 },
+  ];
+  for (const o of r02Pi2Obs) {
+    const inspId = r02Inspections.get(o.camp)!;
+    const [obs] = await db.insert(inspectionObservations).values({
+      inspectionId: inspId,
+      sourceIndicationNumber: 'IND-12000',
+      weldJointId: r02C6.id,
+      circumferentialPosition: 12000,
+      length: o.len,
+      depth: o.dep,
+      indicationType: 'Crack-like',
+      rawSourceData: { 'SEGMENT [M]': '12-15' },
+    }).returning();
+
+    await db.insert(indicationMatches).values({
+      physicalIndicationId: r02Pi2.id,
+      observationId: obs.id,
+      confidenceScore: 0.99,
+      status: 'CONFIRMED',
+      reviewedBy: masterUser.id,
+    });
+  }
+
+  console.log('Database successfully seeded with authentic R01, R02 datasets and multi-campaign timelines.');
   process.exit(0);
 }
 
 seed().catch(err => {
-  console.error('Failed to seed Phase 2 database:', err);
+  console.error('Failed to seed database:', err);
   process.exit(1);
 });

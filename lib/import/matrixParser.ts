@@ -88,6 +88,40 @@ export function parseCampaignDate(name: string): string {
   return `${foundYear}-${foundMonth}-15`;
 }
 
+// Helper to auto-detect header row from sheet array-of-arrays
+export function detectHeaderRow(aoa: unknown[][]): { headerIndex: number; headers: string[] } {
+  const commonHeaderKeywords = ["ind", "weld", "joint", "circ", "pos", "len", "dep", "thick", "type", "amp", "segment", "no", "drum"];
+  
+  let bestRowIndex = 0;
+  let maxKeywordScore = -1;
+  let bestHeaders: string[] = [];
+
+  for (let r = 0; r < Math.min(15, aoa.length); r++) {
+    const row = aoa[r];
+    if (!Array.isArray(row)) continue;
+
+    let score = 0;
+    const currentHeaders = row.map((cell, cIdx) => {
+      const str = cell !== null && cell !== undefined ? String(cell).trim() : `Column_${cIdx + 1}`;
+      const lower = str.toLowerCase();
+      if (commonHeaderKeywords.some(k => lower.includes(k))) score += 2;
+      return str;
+    });
+
+    if (score > maxKeywordScore && currentHeaders.length > 2) {
+      maxKeywordScore = score;
+      bestRowIndex = r;
+      bestHeaders = currentHeaders;
+    }
+  }
+
+  if (bestHeaders.length === 0 && aoa.length > 0) {
+    bestHeaders = (aoa[0] || []).map((c, i) => String(c ?? `Column_${i + 1}`));
+  }
+
+  return { headerIndex: bestRowIndex, headers: bestHeaders };
+}
+
 // Detect if uploaded sheet matches the multi-campaign matrix format
 export function detectMatrixFormat(headers: string[]): boolean {
   const lengthHeaders = headers.filter(h => {

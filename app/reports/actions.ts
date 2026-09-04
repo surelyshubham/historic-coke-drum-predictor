@@ -21,6 +21,231 @@ import {
   ReportIndicationItem, 
   FlawCampaignRecord 
 } from "@/lib/reports/reportTypes";
+import * as XLSX from "xlsx";
+import { 
+  detectHeaderRow, 
+  detectMatrixFormat, 
+  discoverCampaignsFromHeaders, 
+  parseMatrixRows, 
+  MatrixParseResult 
+} from "@/lib/import/matrixParser";
+
+export async function parseUploadedExcelReportData(formData: FormData, selectedDrumName?: string, selectedWeldName?: string): Promise<ReportPayload> {
+  const file = formData.get("file") as File;
+  if (!file) {
+    throw new Error("No file uploaded");
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: false, cellDates: false });
+
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    throw new Error("Uploaded workbook has no sheets.");
+  }
+
+  // Find the first sheet that matches matrix or has data
+  let parsedMatrix: MatrixParseResult | null = null;
+  for (const sName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sName];
+    const rawAoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+    const { headerIndex, headers } = detectHeaderRow(rawAoa);
+    const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      range: headerIndex,
+      defval: "",
+      raw: false,
+    });
+
+    if (jsonRows.length > 0) {
+      const isMatrix = detectMatrixFormat(headers);
+      const campaigns = isMatrix ? discoverCampaignsFromHeaders(headers) : [];
+      if (campaigns.length > 0) {
+        parsedMatrix = parseMatrixRows(jsonRows, headers, campaigns);
+        break;
+      }
+    }
+  }
+
+  if (!parsedMatrix || parsedMatrix.physicalIndications.length === 0) {
+    throw new Error("Could not parse PAUT inspection matrix from the uploaded Excel file. Please ensure multi-campaign columns (e.g. OCT-23, APR-24, etc.) are present.");
+  }
+
+  return buildReportPayloadFromMatrix(parsedMatrix, selectedDrumName, selectedWeldName);
+}
+
+export async function buildReportPayloadFromMatrix(
+  matrix: MatrixParseResult,
+  targetDrumName?: string,
+  targetWeldName?: string
+): Promise<ReportPayload> {
+  const nominalThickness = 32.0;
+  const diameter = 8.97;
+
+  const availableDrumNames = matrix.availableDrums.length > 0 ? matrix.availableDrums : ["R01"];
+  const activeDrumName = targetDrumName && availableDrumNames.includes(targetDrumName)
+    ? targetDrumName
+    : availableDrumNames[0];
+
+  const availableWeldsForDrum = matrix.weldsByDrum[activeDrumName] || matrix.availableWelds;
+  const activeWeldName = targetWeldName && availableWeldsForDrum.includes(targetWeldName)
+    ? targetWeldName
+    : (targetWeldName === "ALL" ? null : (availableWeldsForDrum[0] || null));
+
+  // Filter indications for this drum and weld
+  let matchingIndications = matrix.physicalIndications.filter(pi => pi.drumName === activeDrumName);
+  if (activeWeldName) {
+    matchingIndications = matchingIndications.filter(pi => pi.weldName === activeWeldName);
+  }
+
+  const allCampaignNames = matrix.campaigns.map(c => c.key);
+
+  const indicationItems: ReportIndicationItem[] = matchingIndications.map((pi, idx) => {
+    // Build historical measurements
+    const measurements: HistoricalMeasurement[] = [];
+    const campaignHistory: FlawCampaignRecord[] = [];
+
+    matrix.campaigns.forEach(c => {
+      const val = pi.campaignValues[c.key];
+      if (val && val.length !== null && val.depth !== null) {
+        measurements.push({
+          date: new Date(c.date),
+          campaignName: c.key,
+          depth: val.depth,
+          length: val.length,
+          circumferentialPosition: pi.circumferentialPosition,
+        });
+        campaignHistory.push({
+          campaignName: c.key,
+          inspectionDate: c.date,
+          length: val.length,
+          depth: val.depth,
+        });
+      }
+    });
+
+    const pred = generateGrowthPrediction(
+      measurements.length > 0
+        ? measurements
+        : [
+            {
+              date: new Date(),
+              campaignName: "Current",
+              depth: pi.latestDepth || 4.0,
+              length: pi.latestLength || 30.0,
+              circumferentialPosition: pi.circumferentialPosition,
+            },
+          ],
+      {
+        modelType: "LINEAR",
+        scenario: "MODERATE",
+        thresholds: { nominalWallThickness: nominalThickness },
+      }
+    );
+
+    const currentDepth = pred.currentDepth;
+    const depthPercentOfWall = Number(((currentDepth / nominalThickness) * 100).toFixed(1));
+
+    return {
+      id: idx + 1,
+      code: pi.code,
+      weldId: idx + 1,
+      weldName: pi.weldName,
+      circumferentialPosition: pi.circumferentialPosition,
+      segment: pi.segment,
+      weldPosition: pi.weldPosition,
+      currentLength: Number(pred.currentLength.toFixed(1)),
+      currentDepth: Number(currentDepth.toFixed(2)),
+      depthPercentOfWall,
+      growthRateYear: pred.annualDepthRateMmYear,
+      warningDate: pred.exceedance.warningDate ? pred.exceedance.warningDate.toISOString().split("T")[0] : null,
+      warningDaysRemaining: pred.exceedance.warningDaysRemaining,
+      criticalDate: pred.exceedance.criticalDate ? pred.exceedance.criticalDate.toISOString().split("T")[0] : null,
+      criticalDaysRemaining: pred.exceedance.criticalDaysRemaining,
+      riskTier: pred.exceedance.riskTier,
+      campaignHistory,
+    };
+  });
+
+  // Sort by risk priority
+  const riskOrder = { CRITICAL: 0, HIGH: 1, MODERATE: 2, LOW: 3 };
+  indicationItems.sort((a, b) => {
+    if (riskOrder[a.riskTier] !== riskOrder[b.riskTier]) {
+      return riskOrder[a.riskTier] - riskOrder[b.riskTier];
+    }
+    const daysA = a.warningDaysRemaining ?? 99999;
+    const daysB = b.warningDaysRemaining ?? 99999;
+    return daysA - daysB;
+  });
+
+  const criticalCount = indicationItems.filter(i => i.riskTier === "CRITICAL").length;
+  const highRiskCount = indicationItems.filter(i => i.riskTier === "HIGH").length;
+  const moderateCount = indicationItems.filter(i => i.riskTier === "MODERATE").length;
+  const lowRiskCount = indicationItems.filter(i => i.riskTier === "LOW").length;
+
+  const validWarningDays = indicationItems
+    .map(i => i.warningDaysRemaining)
+    .filter((d): d is number => d !== null && d >= 0)
+    .sort((a, b) => a - b);
+
+  const validThroughWallDays = indicationItems
+    .map(i => i.criticalDaysRemaining)
+    .filter((d): d is number => d !== null && d >= 0)
+    .sort((a, b) => a - b);
+
+  const earliestWarningDays = validWarningDays.length > 0 ? validWarningDays[0] : null;
+  const earliestThroughWallDays = validThroughWallDays.length > 0 ? validThroughWallDays[0] : null;
+
+  const earliestWarningItem = indicationItems.find(i => i.warningDaysRemaining === earliestWarningDays);
+  const earliestThroughWallItem = indicationItems.find(i => i.criticalDaysRemaining === earliestThroughWallDays);
+
+  let recommendedTurnaroundDate: string | null = null;
+  if (earliestWarningItem?.warningDate) {
+    const d = new Date(earliestWarningItem.warningDate);
+    d.setMonth(d.getMonth() - 6);
+    recommendedTurnaroundDate = d.toISOString().split("T")[0];
+  }
+
+  const drumListObjs = availableDrumNames.map((name, i) => ({ id: i + 1, name }));
+  const activeDrumObj = drumListObjs.find(d => d.name === activeDrumName) || drumListObjs[0];
+
+  const weldListObjs = availableWeldsForDrum.map((name, i) => ({
+    id: i + 1,
+    name,
+    drumId: activeDrumObj.id,
+  }));
+
+  const activeWeldObj = activeWeldName ? weldListObjs.find(w => w.name === activeWeldName) : null;
+
+  return {
+    vesselInfo: {
+      id: activeDrumObj.id,
+      name: activeDrumName,
+      nominalThickness,
+      diameter,
+      material: "SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)",
+      clientName: "Uploaded Dataset / Refinery",
+      status: "active",
+    },
+    executiveSummary: {
+      monitoredFlawsCount: indicationItems.length,
+      criticalCount,
+      highRiskCount,
+      moderateCount,
+      lowRiskCount,
+      earliestWarningDate: earliestWarningItem?.warningDate ?? null,
+      earliestWarningDays,
+      earliestThroughWallDate: earliestThroughWallItem?.criticalDate ?? null,
+      earliestThroughWallDays,
+      recommendedTurnaroundDate,
+    },
+    availableDrums: drumListObjs,
+    availableWelds: weldListObjs,
+    indications: indicationItems,
+    selectedWeldId: activeWeldObj?.id ?? null,
+    selectedIndicationId: indicationItems[0]?.id ?? null,
+    allCampaignNames,
+  };
+}
 
 export async function getReportData(drumId?: number, weldId?: number): Promise<ReportPayload> {
   const session = await auth();

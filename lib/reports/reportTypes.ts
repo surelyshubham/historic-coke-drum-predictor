@@ -48,6 +48,13 @@ export interface ReportIndicationItem {
   campaignHistory: FlawCampaignRecord[];
 }
 
+export interface ReportImages {
+  polarRingImage?: string;
+  weldPlanImage?: string;
+  bevelSScanImage?: string;
+  forecastCurveImage?: string;
+}
+
 export interface ReportPayload {
   vesselInfo: VesselInfo;
   executiveSummary: ExecutiveSummary;
@@ -57,6 +64,7 @@ export interface ReportPayload {
   selectedWeldId: number | null;
   selectedIndicationId: number | null;
   allCampaignNames: string[];
+  images?: ReportImages;
 }
 
 export interface ReportSectionConfig {
@@ -67,3 +75,4 @@ export interface ReportSectionConfig {
   predictiveForecast: boolean;
   progressionTable: boolean;
 }
+

@@ -103,4 +103,28 @@ describe("Reporting Module", () => {
     expect(mockPayload.executiveSummary.highRiskCount).toBe(1);
     expect(mockPayload.executiveSummary.earliestWarningDays).toBe(405);
   });
+
+  it("embeds graphic visualizer images inside the DOCX document when provided", async () => {
+    // 1x1 transparent PNG data URL as test image
+    const samplePng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    const payloadWithImages: ReportPayload = {
+      ...mockPayload,
+      images: {
+        polarRingImage: samplePng,
+        weldPlanImage: samplePng,
+        bevelSScanImage: samplePng,
+        forecastCurveImage: samplePng,
+      },
+    };
+
+    const docxWithImages = await generateDocxReport(payloadWithImages);
+    expect(docxWithImages).toBeDefined();
+    expect(Buffer.isBuffer(docxWithImages)).toBe(true);
+    // Document with images should be larger and valid PK zip archive
+    expect(docxWithImages.length).toBeGreaterThan(1000);
+    expect(docxWithImages[0]).toBe(0x50);
+    expect(docxWithImages[1]).toBe(0x4b);
+  });
 });
+

@@ -13,8 +13,21 @@ import {
   Header,
   Footer,
   PageNumber,
+  ImageRun,
 } from "docx";
 import { ReportPayload } from "./reportTypes";
+
+function parseBase64Image(dataUrl?: string): Buffer | null {
+  if (!dataUrl) return null;
+  try {
+    const base64Str = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
+    const buf = Buffer.from(base64Str, "base64");
+    return buf.length > 50 ? buf : null;
+  } catch (err) {
+    console.error("Failed parsing base64 image for DOCX:", err);
+    return null;
+  }
+}
 
 export async function generateDocxReport(payload: ReportPayload): Promise<Buffer> {
   const { vesselInfo, executiveSummary, indications, allCampaignNames } = payload;
@@ -404,76 +417,184 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
           execSummaryTable,
 
           // Section 4: Visual Inspection Suite Overview
+          // Section 4: Visual Inspection Suite Overview with Embedded Graphic Images
           new Paragraph({
             heading: HeadingLevel.HEADING_1,
-            spacing: { before: 300, after: 100 },
+            spacing: { before: 300, after: 120 },
             children: [
               new TextRun({
-                text: "4. PAUT Engineering Visualizations Summary",
+                text: "4. PAUT Engineering Visualizations & High-Resolution Maps",
                 bold: true,
                 size: 24,
                 color: "0f172a",
               }),
             ],
           }),
-          new Paragraph({
-            spacing: { after: 150 },
-            children: [
-              new TextRun({
-                text: "The web portal provides synchronized high-fidelity visualizers corresponding to authentic refinery PAUT field reports:",
-                size: 20,
-              }),
-            ],
-          }),
-          new Paragraph({
-            bullet: { level: 0 },
-            children: [
-              new TextRun({
-                text: "360° Circular Polar Ring Map: ",
-                bold: true,
-              }),
-              new TextRun({
-                text: "Displays the complete circumferential shell cross-section with discrete segment badges (0–146 units) and arc defect trajectories.",
-              }),
-            ],
-          }),
-          new Paragraph({
-            bullet: { level: 0 },
-            children: [
-              new TextRun({
-                text: "Weld Width Plan Projection (C-Scan): ",
-                bold: true,
-              }),
-              new TextRun({
-                text: "Maps flaw positions relative to weld centerline (0 mm), weld cap toes (±3 mm), and Heat Affected Zone boundaries (±6 mm).",
-              }),
-            ],
-          }),
-          new Paragraph({
-            bullet: { level: 0 },
-            children: [
-              new TextRun({
-                text: "Bevel Ultrasonic S-Scan Cross-Section: ",
-                bold: true,
-              }),
-              new TextRun({
-                text: "Transverse V-groove slice displaying the ultrasonic Jet/Rainbow amplitude echo and remaining sound wall ligament.",
-              }),
-            ],
-          }),
-          new Paragraph({
-            bullet: { level: 0 },
-            spacing: { after: 200 },
-            children: [
-              new TextRun({
-                text: "Growth Extrapolation & Lifing Forecast Curve: ",
-                bold: true,
-              }),
-              new TextRun({
-                text: "Projects future through-wall depth using Ordinary Least Squares regression with statistical confidence fan envelopes and threshold alarms.",
-              }),
-            ],
-          }),
+
+          // Figure 1: 360 Polar Ring Map Image
+          ...(payload.images?.polarRingImage && parseBase64Image(payload.images.polarRingImage)
+            ? [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: 80, after: 60 },
+                  children: [
+                    new ImageRun({
+                      data: parseBase64Image(payload.images.polarRingImage)!,
+                      transformation: {
+                        width: 480,
+                        height: 340,
+                      },
+                      type: "png",
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 200 },
+                  children: [
+                    new TextRun({
+                      text: `Figure 1: Full 360° Circumferential Polar Ring Map (~${circumferenceM} m Shell Cross-Section with 0–146 Segment Badges)`,
+                      italics: true,
+                      bold: true,
+                      size: 17,
+                      color: "334155",
+                    }),
+                  ],
+                }),
+              ]
+            : [
+                new Paragraph({
+                  bullet: { level: 0 },
+                  children: [
+                    new TextRun({ text: "360° Circular Polar Ring Map: ", bold: true }),
+                    new TextRun({ text: `Displays complete circumferential shell cross-section (~${circumferenceM} m perimeter) with 0–146 segment badges and flaw arcs.` }),
+                  ],
+                }),
+              ]),
+
+          // Figure 2: Weld Width Plan Projection Image
+          ...(payload.images?.weldPlanImage && parseBase64Image(payload.images.weldPlanImage)
+            ? [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: 100, after: 60 },
+                  children: [
+                    new ImageRun({
+                      data: parseBase64Image(payload.images.weldPlanImage)!,
+                      transformation: {
+                        width: 550,
+                        height: 220,
+                      },
+                      type: "png",
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 200 },
+                  children: [
+                    new TextRun({
+                      text: "Figure 2: Top-Down C-Scan Weld Width with Indications Plan View (Index Offset vs ScanLength)",
+                      italics: true,
+                      bold: true,
+                      size: 17,
+                      color: "334155",
+                    }),
+                  ],
+                }),
+              ]
+            : [
+                new Paragraph({
+                  bullet: { level: 0 },
+                  children: [
+                    new TextRun({ text: "Weld Width Plan Projection (C-Scan): ", bold: true }),
+                    new TextRun({ text: "Maps flaw positions relative to weld centerline (0 mm), weld cap toes (±3 mm), and HAZ boundaries (±6 mm)." }),
+                  ],
+                }),
+              ]),
+
+          // Figure 3: Bevel S-Scan Cross-Section Image
+          ...(payload.images?.bevelSScanImage && parseBase64Image(payload.images.bevelSScanImage)
+            ? [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: 100, after: 60 },
+                  children: [
+                    new ImageRun({
+                      data: parseBase64Image(payload.images.bevelSScanImage)!,
+                      transformation: {
+                        width: 530,
+                        height: 210,
+                      },
+                      type: "png",
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 200 },
+                  children: [
+                    new TextRun({
+                      text: "Figure 3: Ultrasonic Bevel S-Scan Cross-Section Profile with Jet/Rainbow Amplitude Heatmap",
+                      italics: true,
+                      bold: true,
+                      size: 17,
+                      color: "334155",
+                    }),
+                  ],
+                }),
+              ]
+            : [
+                new Paragraph({
+                  bullet: { level: 0 },
+                  children: [
+                    new TextRun({ text: "Bevel Ultrasonic S-Scan Cross-Section: ", bold: true }),
+                    new TextRun({ text: "Transverse V-groove slice displaying the ultrasonic Jet/Rainbow amplitude echo and remaining sound wall ligament." }),
+                  ],
+                }),
+              ]),
+
+          // Figure 4: Predictive Growth Forecast Curve Image
+          ...(payload.images?.forecastCurveImage && parseBase64Image(payload.images.forecastCurveImage)
+            ? [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: 100, after: 60 },
+                  children: [
+                    new ImageRun({
+                      data: parseBase64Image(payload.images.forecastCurveImage)!,
+                      transformation: {
+                        width: 550,
+                        height: 240,
+                      },
+                      type: "png",
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 220 },
+                  children: [
+                    new TextRun({
+                      text: "Figure 4: Historical Defect Growth Extrapolation & Lifing Forecast Curve (OLS Regression with 80% Warning Limit)",
+                      italics: true,
+                      bold: true,
+                      size: 17,
+                      color: "334155",
+                    }),
+                  ],
+                }),
+              ]
+            : [
+                new Paragraph({
+                  bullet: { level: 0 },
+                  spacing: { after: 200 },
+                  children: [
+                    new TextRun({ text: "Growth Extrapolation & Lifing Forecast Curve: ", bold: true }),
+                    new TextRun({ text: "Projects future through-wall depth using Ordinary Least Squares regression with statistical confidence fan envelopes and threshold alarms." }),
+                  ],
+                }),
+              ]),
 
           // Section 5: Historical Defect Progression Table
           new Paragraph({

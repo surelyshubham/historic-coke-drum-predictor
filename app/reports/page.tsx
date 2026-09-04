@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { getReportData } from "./actions";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { getReportData, parseUploadedExcelReportData } from "./actions";
 import { ReportPayload, ReportIndicationItem, ReportSectionConfig } from "@/lib/reports/reportTypes";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 import { HistoricalMeasurement } from "@/lib/prediction/growthModel";
@@ -24,7 +24,11 @@ import {
   Search,
   Filter,
   Info,
-  ChevronDown
+  ChevronDown,
+  Upload,
+  FileSpreadsheet,
+  XCircle,
+  Sparkles
 } from "lucide-react";
 
 export default function ReportsPage() {
@@ -35,6 +39,12 @@ export default function ReportsPage() {
   const [selectedIndicationId, setSelectedIndicationId] = useState<number | null>(null);
   const [searchFilter, setSearchFilter] = useState<string>("");
   const [exportingDocx, setExportingDocx] = useState<boolean>(false);
+
+  // Uploaded Excel State
+  const [uploadedExcelName, setUploadedExcelName] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadingExcel, setUploadingExcel] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Section Visibility Toggles
   const [sections, setSections] = useState<ReportSectionConfig>({
@@ -67,26 +77,167 @@ export default function ReportsPage() {
     }
   };
 
-  const handleDrumChange = (id: number) => {
-    setSelectedDrumId(id);
-    setSelectedWeldId(null);
-    loadReport(id, undefined);
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingExcel(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const parsedPayload = await parseUploadedExcelReportData(formData);
+      setPayload(parsedPayload);
+      setUploadedExcelName(file.name);
+      setUploadedFile(file);
+      setSelectedDrumId(parsedPayload.vesselInfo.id);
+      setSelectedWeldId(parsedPayload.selectedWeldId);
+      if (parsedPayload.indications.length > 0) {
+        setSelectedIndicationId(parsedPayload.indications[0].id);
+      }
+    } catch (err: any) {
+      console.error("Failed to parse uploaded Excel report:", err);
+      alert(err.message || "Failed to parse Excel file. Please ensure it contains multi-campaign PAUT columns.");
+    } finally {
+      setUploadingExcel(false);
+    }
   };
 
-  const handleWeldChange = (wId: number | null) => {
+  const handleClearUploadedExcel = () => {
+    setUploadedExcelName(null);
+    setUploadedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    loadReport();
+  };
+
+  const handleDrumChange = async (id: number) => {
+    setSelectedDrumId(id);
+    setSelectedWeldId(null);
+
+    if (uploadedFile && payload) {
+      const drumObj = payload.availableDrums.find(d => d.id === id);
+      if (drumObj) {
+        setLoading(true);
+        try {
+          const formData = new FormData();
+          formData.append("file", uploadedFile);
+          const newPayload = await parseUploadedExcelReportData(formData, drumObj.name, undefined);
+          setPayload(newPayload);
+          setSelectedIndicationId(newPayload.indications[0]?.id ?? null);
+        } catch (err) {
+          console.error("Error switching drum on uploaded file:", err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    } else {
+      loadReport(id, undefined);
+    }
+  };
+
+  const handleWeldChange = async (wId: number | null) => {
     setSelectedWeldId(wId);
-    loadReport(selectedDrumId || undefined, wId || undefined);
+
+    if (uploadedFile && payload) {
+      const activeDrum = payload.availableDrums.find(d => d.id === selectedDrumId) || payload.availableDrums[0];
+      const weldObj = wId ? payload.availableWelds.find(w => w.id === wId) : null;
+      const targetWeldName = weldObj ? weldObj.name : "ALL";
+
+      setLoading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", uploadedFile);
+        const newPayload = await parseUploadedExcelReportData(formData, activeDrum?.name, targetWeldName);
+        setPayload(newPayload);
+        setSelectedIndicationId(newPayload.indications[0]?.id ?? null);
+      } catch (err) {
+        console.error("Error switching weld on uploaded file:", err);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      loadReport(selectedDrumId || undefined, wId || undefined);
+    }
+  };
+
+  // Helper to capture an SVG element as a high-resolution PNG data URL
+  const captureSvgAsPng = async (containerId: string): Promise<string | undefined> => {
+    try {
+      const container = document.getElementById(containerId);
+      if (!container) return undefined;
+      const svg = container.querySelector("svg");
+      if (!svg) return undefined;
+
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const URL = window.URL || window.webkitURL || window;
+      const blobURL = URL.createObjectURL(svgBlob);
+
+      return await new Promise<string>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement("canvas");
+          // 2x high-resolution rendering
+          const scale = 2;
+          canvas.width = (svg.clientWidth || 800) * scale;
+          canvas.height = (svg.clientHeight || 400) * scale;
+
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve("");
+            return;
+          }
+
+          // Crisp white background for Word document
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+          URL.revokeObjectURL(blobURL);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        image.onerror = (e) => {
+          URL.revokeObjectURL(blobURL);
+          resolve("");
+        };
+        image.src = blobURL;
+      });
+    } catch (err) {
+      console.warn(`Could not capture SVG for ${containerId}:`, err);
+      return undefined;
+    }
   };
 
   const handleExportDocx = async () => {
     if (!payload) return;
     setExportingDocx(true);
     try {
-      const params = new URLSearchParams();
-      if (selectedDrumId) params.append("drumId", selectedDrumId.toString());
-      if (selectedWeldId) params.append("weldId", selectedWeldId.toString());
+      // Capture live SVGs as crisp PNG images
+      const [polarRingImg, weldPlanImg, bevelSScanImg, forecastCurveImg] = await Promise.all([
+        captureSvgAsPng("report-polar-ring-container"),
+        captureSvgAsPng("report-weld-plan-container"),
+        captureSvgAsPng("report-bevel-sscan-container"),
+        captureSvgAsPng("report-forecast-curve-container"),
+      ]);
 
-      const res = await fetch(`/api/reports/docx?${params.toString()}`);
+      const images = {
+        polarRingImage: polarRingImg || undefined,
+        weldPlanImage: weldPlanImg || undefined,
+        bevelSScanImage: bevelSScanImg || undefined,
+        forecastCurveImage: forecastCurveImg || undefined,
+      };
+
+      const res = await fetch("/api/reports/docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          drumId: selectedDrumId,
+          weldId: selectedWeldId,
+          customPayload: payload,
+          images,
+        }),
+      });
+
       if (!res.ok) throw new Error("Failed to generate DOCX file");
 
       const blob = await res.blob();
@@ -227,7 +378,51 @@ export default function ReportsPage() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Direct Excel Upload Button */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleExcelUpload}
+              className="hidden"
+              id="report-excel-input"
+            />
+
+            {uploadedExcelName ? (
+              <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                <FileSpreadsheet size={14} className="text-emerald-600" />
+                <span className="truncate max-w-[140px] sm:max-w-[200px]" title={uploadedExcelName}>
+                  {uploadedExcelName}
+                </span>
+                <button
+                  onClick={handleClearUploadedExcel}
+                  className="text-emerald-700 hover:text-red-600 transition ml-1 cursor-pointer"
+                  title="Clear uploaded Excel and revert to database"
+                >
+                  <XCircle size={14} />
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="report-excel-input"
+                className={`flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold shadow-2xs transition cursor-pointer ${
+                  uploadingExcel ? "opacity-50 pointer-events-none" : ""
+                }`}
+              >
+                {uploadingExcel ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin" />
+                    Parsing Excel...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={14} className="text-sky-600" /> Load Excel File (.xlsx)
+                  </>
+                )}
+              </label>
+            )}
+
             <button
               onClick={handleExportDocx}
               disabled={exportingDocx}
@@ -236,7 +431,7 @@ export default function ReportsPage() {
               {exportingDocx ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Generating DOCX...
+                  Generating DOCX with High-Res Images...
                 </>
               ) : (
                 <>
@@ -496,17 +691,19 @@ export default function ReportsPage() {
               <span className="text-[11px] text-slate-500">0 to 146 Segment Badges ({circumferenceM} m Perimeter)</span>
             </div>
 
-            <PolarCircumferentialRingMap
-              indications={trackedIndications}
-              selectedFlawCode={selectedIndication?.code}
-              onSelectFlaw={(pi) => {
-                const found = payload.indications.find((i) => i.code === pi.code);
-                if (found) setSelectedIndicationId(found.id);
-              }}
-              drumName={vesselInfo.name}
-              weldName={activeWeldName}
-              totalCircumferenceMm={Math.round(circumferenceM * 1000)}
-            />
+            <div id="report-polar-ring-container">
+              <PolarCircumferentialRingMap
+                indications={trackedIndications}
+                selectedFlawCode={selectedIndication?.code}
+                onSelectFlaw={(pi) => {
+                  const found = payload.indications.find((i) => i.code === pi.code);
+                  if (found) setSelectedIndicationId(found.id);
+                }}
+                drumName={vesselInfo.name}
+                weldName={activeWeldName}
+                totalCircumferenceMm={Math.round(circumferenceM * 1000)}
+              />
+            </div>
           </div>
         )}
 
@@ -521,14 +718,16 @@ export default function ReportsPage() {
               <span className="text-[11px] text-slate-500">Top-Down C-Scan Projection relative to Centerline &amp; HAZ Limits</span>
             </div>
 
-            <WeldWidthPlanPlot
-              indications={trackedIndications}
-              selectedFlawCode={selectedIndication?.code}
-              onSelectFlaw={(pi) => {
-                const found = payload.indications.find((i) => i.code === pi.code);
-                if (found) setSelectedIndicationId(found.id);
-              }}
-            />
+            <div id="report-weld-plan-container">
+              <WeldWidthPlanPlot
+                indications={trackedIndications}
+                selectedFlawCode={selectedIndication?.code}
+                onSelectFlaw={(pi) => {
+                  const found = payload.indications.find((i) => i.code === pi.code);
+                  if (found) setSelectedIndicationId(found.id);
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -556,10 +755,12 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            <WeldBevelSScanProfile
-              indication={selectedTrackedIndication}
-              nominalWallThickness={vesselInfo.nominalThickness}
-            />
+            <div id="report-bevel-sscan-container">
+              <WeldBevelSScanProfile
+                indication={selectedTrackedIndication}
+                nominalWallThickness={vesselInfo.nominalThickness}
+              />
+            </div>
           </div>
         )}
 
@@ -576,7 +777,7 @@ export default function ReportsPage() {
               </span>
             </div>
 
-            <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs">
+            <div id="report-forecast-curve-container" className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs">
               <PredictiveForecastChart
                 measurements={forecastMeasurements}
                 flawCode={selectedIndication.code}
