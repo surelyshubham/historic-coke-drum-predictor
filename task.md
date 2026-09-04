@@ -1,0 +1,21 @@
+# Phase 5: Indication Matching Engine Tasks
+
+- [x] Implement multi-attribute spatial proximity matching engine (`lib/matching/matcher.ts`)
+  - Distance threshold scoring (+/- 100mm configurable)
+  - Dimension & attribute similarity weighting
+  - Confidence scoring (0-100%) and classification (HIGH, MEDIUM, LOW)
+  - Automated explanation generator
+- [x] Create server actions for match review & overrides (`app/matching/actions.ts`)
+  - Automated campaign matching execution
+  - Confirm, reject, and reassign/override match
+  - Create new physical indication from unmatched observation
+  - Merge physical indications
+  - Strict audit trail logging
+- [x] Build Manual Match Review & Candidate Ranking UI (`app/matching/page.tsx`):
+  - Review queue for MEDIUM/REVIEW_REQUIRED matches
+  - Side-by-side comparison of candidate physical indications
+  - Interactive Confirm / Reject / Override / Merge controls
+  - Spatial proximity tolerance adjuster slider
+- [x] Add unit tests for matching engine (`tests/unit/matcher.test.ts`)
+- [x] Add "Indication Matching" link to Sidebar navigation
+- [x] Verify build and test matching workflows

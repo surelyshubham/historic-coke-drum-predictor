@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { LayoutDashboard, Database, Activity, FileText, Settings, Users, Upload, TrendingUp } from "lucide-react";
+import { LayoutDashboard, Database, Activity, FileText, Settings, Users, Upload, TrendingUp, GitMerge } from "lucide-react";
 
 export function Sidebar({ role }: { role: string }) {
   const isMaster = role === "MASTER";
@@ -26,6 +26,11 @@ export function Sidebar({ role }: { role: string }) {
             <Link href="/inspections/import" className="flex items-center space-x-3 px-3 py-2 rounded-md hover:bg-sky-100 text-sky-700 font-medium">
               <Upload size={20} />
               <span>Import Dataset</span>
+            </Link>
+
+            <Link href="/matching" className="flex items-center space-x-3 px-3 py-2 rounded-md hover:bg-sky-100 text-slate-700 font-medium">
+              <GitMerge size={20} />
+              <span>Indication Matching</span>
             </Link>
           </>
         )}
