@@ -1,6 +1,8 @@
 import type { NextAuthConfig } from "next-auth";
 
 export const authConfig = {
+  secret: process.env.AUTH_SECRET || "development_secret_key_coke_drum_32_bytes",
+  trustHost: true,
   pages: {
     signIn: "/login",
   },

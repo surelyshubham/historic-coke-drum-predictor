@@ -1,4 +1,6 @@
 import { signIn } from "@/lib/auth";
+import { AuthError } from "next-auth";
+import { redirect } from "next/navigation";
 
 export default function LoginPage() {
   return (
@@ -12,7 +14,18 @@ export default function LoginPage() {
         <form
           action={async (formData) => {
             "use server";
-            await signIn("credentials", formData);
+            try {
+              await signIn("credentials", {
+                email: formData.get("email"),
+                password: formData.get("password"),
+                redirectTo: "/dashboard",
+              });
+            } catch (error) {
+              if (error instanceof AuthError) {
+                redirect("/login?error=InvalidCredentials");
+              }
+              throw error;
+            }
           }}
           className="space-y-4"
         >

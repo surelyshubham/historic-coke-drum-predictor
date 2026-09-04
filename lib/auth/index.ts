@@ -17,20 +17,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
         
-        const userList = await db.select().from(users).where(eq(users.email, credentials.email as string)).limit(1);
-        const user = userList[0];
-        
-        if (!user) return null;
-        
-        const passwordMatch = await bcrypt.compare(credentials.password as string, user.passwordHash);
-        if (!passwordMatch) return null;
-        
-        return {
-          id: String(user.id),
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
+        try {
+          const userList = await db
+            .select()
+            .from(users)
+            .where(eq(users.email, credentials.email as string))
+            .limit(1);
+          const user = userList[0];
+          
+          if (!user) return null;
+          
+          const passwordMatch = await bcrypt.compare(
+            credentials.password as string,
+            user.passwordHash
+          );
+          if (!passwordMatch) return null;
+          
+          return {
+            id: String(user.id),
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
+        } catch (err) {
+          console.error("Auth error during authorize:", err);
+          return null;
+        }
       },
     }),
   ],
