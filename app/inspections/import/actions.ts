@@ -77,7 +77,7 @@ export async function parseWorkbookFile(formData: FormData) {
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: false, cellDates: false });
 
   const sheetNames = workbook.SheetNames;
   const sheetsData: Record<string, {
@@ -98,6 +98,7 @@ export async function parseWorkbookFile(formData: FormData) {
     const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
       range: headerIndex,
       defval: "",
+      raw: false,
     });
 
     const isMatrix = detectMatrixFormat(headers);
@@ -119,13 +120,14 @@ export async function parseWorkbookFile(formData: FormData) {
     };
   });
 
-  return {
+  // Guarantee strict plain object serialization across Server Action network boundary
+  return JSON.parse(JSON.stringify({
     filename: file.name,
     sizeBytes: file.size,
     mimeType: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     sheetNames,
     sheetsData,
-  };
+  }));
 }
 
 export async function validateDatasetAction(
