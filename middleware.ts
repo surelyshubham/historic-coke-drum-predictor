@@ -1,24 +1,7 @@
-import { auth } from "@/lib/auth";
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import NextAuth from "next-auth";
+import { authConfig } from "@/lib/auth/auth.config";
 
-export async function middleware(request: NextRequest) {
-  const session = await auth();
-  
-  if (!session && request.nextUrl.pathname.startsWith("/dashboard")) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-  
-  if (session && request.nextUrl.pathname === "/login") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-  
-  if (request.nextUrl.pathname === "/") {
-    return NextResponse.redirect(new URL(session ? "/dashboard" : "/login", request.url));
-  }
-  
-  return NextResponse.next();
-}
+export default NextAuth(authConfig).auth;
 
 export const config = {
   matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
