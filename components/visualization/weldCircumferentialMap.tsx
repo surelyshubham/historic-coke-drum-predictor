@@ -11,6 +11,8 @@ interface WeldMapProps {
   activeWeldName: string;
   activeDrumName: string;
   totalCircumferenceMm?: number;
+  onSelectIndication?: (pi: TrackedPhysicalIndication) => void;
+  selectedIndicationCode?: string;
 }
 
 export function WeldCircumferentialMap({
@@ -20,6 +22,8 @@ export function WeldCircumferentialMap({
   activeWeldName,
   activeDrumName,
   totalCircumferenceMm = 28180, // standard ~28.2m circumference
+  onSelectIndication,
+  selectedIndicationCode,
 }: WeldMapProps) {
   const [selectedPi, setSelectedPi] = useState<TrackedPhysicalIndication | null>(null);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
@@ -157,12 +161,15 @@ export function WeldCircumferentialMap({
             const leftPct = (pi.circumferentialPosition / totalCircumferenceMm) * 100;
             // Width proportional to length, with a minimum clickable width of 1.2%
             const widthPct = Math.max(1.2, (pi.displayLength / totalCircumferenceMm) * 100);
-            const isSelected = selectedPi?.code === pi.code;
+            const isSelected = (selectedIndicationCode ? selectedIndicationCode === pi.code : selectedPi?.code === pi.code);
 
             return (
               <div
                 key={pi.code}
-                onClick={() => setSelectedPi(pi)}
+                onClick={() => {
+                  setSelectedPi(pi);
+                  onSelectIndication?.(pi);
+                }}
                 className={`group absolute h-12 rounded-md cursor-pointer transition-all border flex flex-col justify-center px-1 shadow-xs hover:scale-105 hover:z-20 ${getFlawColor(pi)} ${isSelected ? "ring-4 ring-sky-400 z-30 scale-105" : ""}`}
                 style={{
                   left: `${leftPct}%`,

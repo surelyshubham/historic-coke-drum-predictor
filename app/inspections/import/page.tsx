@@ -10,6 +10,9 @@ import {
 } from "./actions";
 import { MatrixParseResult, TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 import { WeldCircumferentialMap } from "@/components/visualization/weldCircumferentialMap";
+import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
+import { HistoricalMeasurement } from "@/lib/prediction/growthModel";
+import Link from "next/link";
 import { 
   Upload, 
   CheckCircle2, 
@@ -238,6 +241,40 @@ export default function ImportWizardPage() {
     const weldMatch = selectedWelds.includes("ALL") || selectedWelds.includes(pi.weldName);
     return tankMatch && weldMatch;
   });
+
+  const [selectedFlawForForecast, setSelectedFlawForForecast] = useState<TrackedPhysicalIndication | null>(null);
+
+  // Active flaw for predictive forecast
+  const activeFlaw = selectedFlawForForecast && filteredIndications.some(i => i.code === selectedFlawForForecast.code)
+    ? selectedFlawForForecast
+    : (filteredIndications[0] || null);
+
+  const getMeasurementsForFlaw = (pi: TrackedPhysicalIndication): HistoricalMeasurement[] => {
+    if (!matrixResult) return [];
+    const ms: HistoricalMeasurement[] = [];
+    for (const c of matrixResult.campaigns) {
+      const val = pi.campaignValues[c.key];
+      if (val && val.length !== null && val.length > 0) {
+        ms.push({
+          date: new Date(c.date || "2024-01-01"),
+          campaignName: c.label || c.key,
+          length: val.length,
+          depth: val.depth ?? (pi.latestDepth || 2.0),
+          circumferentialPosition: pi.circumferentialPosition,
+        });
+      }
+    }
+    if (ms.length === 0) {
+      ms.push({
+        date: new Date(),
+        campaignName: "Current",
+        length: pi.latestLength || 50,
+        depth: pi.latestDepth || 2.0,
+        circumferentialPosition: pi.circumferentialPosition,
+      });
+    }
+    return ms;
+  };
 
   // Available welds for selected tanks
   const availableWeldsForSelectedTanks = matrixResult ? Array.from(new Set(
@@ -494,15 +531,24 @@ export default function ImportWizardPage() {
               </select>
             </div>
 
-            {/* Save to Database action button */}
-            <button
-              onClick={handleSaveToDatabase}
-              disabled={loading}
-              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors ml-auto"
-            >
-              <Database size={14} />
-              <span>{loading ? "Saving..." : "Save Dataset to Platform"}</span>
-            </button>
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 ml-auto">
+              <Link
+                href="/prediction"
+                className="flex items-center space-x-1.5 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors"
+              >
+                <TrendingUp size={14} />
+                <span>Full Predictive Platform</span>
+              </Link>
+              <button
+                onClick={handleSaveToDatabase}
+                disabled={loading}
+                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors"
+              >
+                <Database size={14} />
+                <span>{loading ? "Saving..." : "Save Dataset to Platform"}</span>
+              </button>
+            </div>
           </div>
 
           {/* 2D Circumferential Weld Map Component */}
@@ -512,7 +558,47 @@ export default function ImportWizardPage() {
             campaigns={matrixResult.campaigns}
             activeDrumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}
             activeWeldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}
+            onSelectIndication={(pi) => setSelectedFlawForForecast(pi)}
+            selectedIndicationCode={activeFlaw?.code}
           />
+
+          {/* Predictive Growth & Forecast Chart for the selected flaw */}
+          {activeFlaw && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-sky-600 animate-pulse"></span>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                    Interactive Flaw Growth Curve & Predictive Forecast
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 font-medium">Select Flaw:</span>
+                  <select
+                    value={activeFlaw.code}
+                    onChange={(e) => {
+                      const found = filteredIndications.find(i => i.code === e.target.value);
+                      if (found) setSelectedFlawForForecast(found);
+                    }}
+                    className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-sky-800 bg-white shadow-xs focus:ring-1 focus:ring-sky-500"
+                  >
+                    {filteredIndications.map(pi => (
+                      <option key={pi.code} value={pi.code}>
+                        {pi.code} ({pi.drumName}-{pi.weldName} @ {pi.locationText})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <PredictiveForecastChart
+                measurements={getMeasurementsForFlaw(activeFlaw)}
+                flawCode={activeFlaw.code}
+                locationInfo={`${activeFlaw.drumName} — Joint ${activeFlaw.weldName} @ ${activeFlaw.locationText}`}
+                nominalThickness={32.0}
+              />
+            </div>
+          )}
 
           {/* Detailed Historical Inspection Observations Matrix Table */}
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
@@ -540,11 +626,18 @@ export default function ImportWizardPage() {
                     <th className="p-3 whitespace-nowrap">Growth Delta</th>
                     <th className="p-3 whitespace-nowrap">Annual Rate</th>
                     <th className="p-3">Status</th>
+                    <th className="p-3 text-center">Forecast</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredIndications.map((pi) => (
-                    <tr key={pi.code} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <tr
+                      key={pi.code}
+                      onClick={() => setSelectedFlawForForecast(pi)}
+                      className={`border-b border-slate-100 hover:bg-sky-50/60 transition-colors cursor-pointer ${
+                        activeFlaw?.code === pi.code ? "bg-sky-50 font-medium" : ""
+                      }`}
+                    >
                       <td className="p-3 font-bold text-sky-700">{pi.code}</td>
                       <td className="p-3 font-semibold text-slate-800">{pi.drumName}</td>
                       <td className="p-3 font-medium text-slate-700">{pi.weldName}</td>
@@ -580,6 +673,21 @@ export default function ImportWizardPage() {
                         <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${pi.hasRepairs ? "bg-emerald-100 text-emerald-800" : "bg-sky-100 text-sky-800"}`}>
                           {pi.hasRepairs ? "REPAIRED" : "ACTIVE"}
                         </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedFlawForForecast(pi);
+                          }}
+                          className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
+                            activeFlaw?.code === pi.code
+                              ? "bg-sky-600 text-white shadow-xs"
+                              : "bg-slate-100 text-slate-700 hover:bg-sky-100 hover:text-sky-800"
+                          }`}
+                        >
+                          {activeFlaw?.code === pi.code ? "Active" : "Inspect"}
+                        </button>
                       </td>
                     </tr>
                   ))}
