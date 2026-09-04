@@ -40,6 +40,11 @@ export function Sidebar({ role }: { role: string }) {
           <span>Historical Analysis</span>
         </Link>
 
+        <Link href="/prediction" className="flex items-center space-x-3 px-3 py-2 rounded-md hover:bg-sky-100 text-sky-900 font-semibold">
+          <TrendingUp size={20} className="text-sky-600" />
+          <span>Predictive Modeling</span>
+        </Link>
+
         <Link href="/drums" className="flex items-center space-x-3 px-3 py-2 rounded-md hover:bg-sky-100 text-slate-700">
           <Database size={20} />
           <span>Coke Drums</span>
