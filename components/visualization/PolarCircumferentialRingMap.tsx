@@ -123,14 +123,49 @@ export function PolarCircumferentialRingMap({
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
-      {/* Title */}
-      <div className="text-center">
-        <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-          360° Circular Circumferential Weld Map (Polar Ring View)
-        </h3>
-        <p className="text-[11px] text-slate-500">
-          Full 360° vessel cross-section for {drumName} ({weldName}) with circumferential distance badges (0–146 units)
-        </p>
+      {/* Title & Live Readout Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+            360° Circular Circumferential Weld Map (Polar Ring View)
+          </h3>
+          <p className="text-[11px] text-slate-500">
+            Full 360° vessel cross-section for {drumName} ({weldName}) with circumferential distance badges (0–146 units)
+          </p>
+        </div>
+
+        {/* Live Coordinate Readout Ribbon (Always completely unobscured above the ring) */}
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+          {hoverPolar ? (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Angle θ:</span>
+                <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}°</span>
+              </div>
+              <span className="text-slate-300">|</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Pos:</span>
+                <span className="font-mono font-bold text-sky-700">{hoverPolar.positionMeters} m</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 font-semibold">
+                  {hoverPolar.percentCircumference}% of 360°
+                </span>
+              </div>
+              {hoverPolar.hoveredFlaw && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
+                    <span>🎯 {hoverPolar.hoveredFlaw.code}</span>
+                    <span className="font-mono text-[11px]">({hoverPolar.hoveredFlaw.latestLength}mm)</span>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
+              <span>🎯 Move cursor around the ring perimeter to inspect radial coordinates & flaws</span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Main SVG Display */}
@@ -302,27 +337,33 @@ export function PolarCircumferentialRingMap({
                 );
               })()}
 
-              {/* Cursor Circle */}
+              {/* Hollow reticle with clear center so shell wall & flaw arcs beneath are 100% visible */}
               <circle
                 cx={hoverPolar.xPx}
                 cy={hoverPolar.yPx}
-                r="4.5"
-                fill="#ffffff"
+                r="6"
+                fill="none"
                 stroke="#0284c7"
-                strokeWidth="2"
+                strokeWidth="1.75"
+              />
+              <circle
+                cx={hoverPolar.xPx}
+                cy={hoverPolar.yPx}
+                r="1.5"
+                fill="#0284c7"
               />
             </g>
           )}
         </svg>
 
-        {/* Floating Tooltip Card */}
+        {/* Docked Inspector HUD Card — Always stays in opposite corner away from the cursor */}
         {hoverPolar && (
           <div
-            className="absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-75"
+            className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
+              hoverPolar.xPx > center ? "left-3 top-3" : "right-3 top-3"
+            }`}
             style={{
-              left: `${Math.min(hoverPolar.xPx + 15, size - 220)}px`,
-              top: `${Math.max(10, Math.min(hoverPolar.yPx - 30, size - 140))}px`,
-              minWidth: "210px",
+              minWidth: "220px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">

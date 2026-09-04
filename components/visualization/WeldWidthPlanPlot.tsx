@@ -138,10 +138,14 @@ export function WeldWidthPlanPlot({
     setHoverCursor(null);
   };
 
-  // Generate nice X ticks
+  // Generate nice, non-overlapping X ticks (targeting ~8 clean ticks)
   const xTicks = useMemo(() => {
     const span = xDomain[1] - xDomain[0];
-    const step = span > 500 ? 100 : span > 200 ? 50 : span > 100 ? 20 : 10;
+    if (span <= 0) return [xDomain[0]];
+    const targetTicks = 8;
+    const rawStep = span / targetTicks;
+    const standardSteps = [5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+    const step = standardSteps.find((s) => s >= rawStep) || Math.ceil(rawStep / 1000) * 1000;
     const ticks: number[] = [];
     const start = Math.ceil(xDomain[0] / step) * step;
     for (let t = start; t <= xDomain[1]; t += step) {
@@ -153,13 +157,50 @@ export function WeldWidthPlanPlot({
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
       {/* Title matching engineering standard */}
-      <div className="text-center">
-        <h3 className="text-sm font-bold text-amber-950 tracking-tight">
-          Weld Width with Indications Plot (Index Offset vs Scan Length)
-        </h3>
-        <p className="text-[11px] text-slate-500">
-          Top-down C-Scan plan projection relative to weld centerline (0 mm), weld cap (±3 mm), and HAZ (±6 mm)
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+        <div>
+          <h3 className="text-sm font-bold text-amber-950 tracking-tight">
+            Weld Width with Indications Plot (Index Offset vs Scan Length)
+          </h3>
+          <p className="text-[11px] text-slate-500">
+            Top-down C-Scan plan projection relative to weld centerline (0 mm), weld cap (±3 mm), and HAZ (±6 mm)
+          </p>
+        </div>
+
+        {/* Live Coordinate Readout HUD Ribbon (Always unobscured above the plot) */}
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+          {hoverCursor ? (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Scan:</span>
+                <span className="font-mono font-bold text-slate-900">{hoverCursor.scanLengthMm} mm</span>
+              </div>
+              <span className="text-slate-300">|</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Offset:</span>
+                <span className="font-mono font-bold text-sky-700">
+                  {hoverCursor.indexOffsetMm > 0 ? `+${hoverCursor.indexOffsetMm}` : hoverCursor.indexOffsetMm} mm
+                </span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 font-semibold">
+                  {Math.abs(hoverCursor.percentOfWeldWidth)}% to {hoverCursor.indexOffsetMm >= 0 ? "Top" : "Bottom"} Toe
+                </span>
+              </div>
+              {hoverCursor.hoveredFlaw && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
+                    <span>🎯 {hoverCursor.hoveredFlaw.code}</span>
+                    <span className="font-mono text-[11px]">({hoverCursor.hoveredFlaw.latestLength}mm)</span>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
+              <span>🎯 Move cursor across weld to inspect coordinates and defect geometry</span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* SVG Canvas with Floating Crosshair */}
@@ -393,32 +434,38 @@ export function WeldWidthPlanPlot({
                 strokeWidth="1"
                 strokeDasharray="3 3"
               />
-              {/* Crosshair Center Point */}
+              {/* Hollow reticle with clear center so data points beneath are 100% visible */}
               <circle
                 cx={hoverCursor.xPx}
                 cy={hoverCursor.yPx}
-                r="4"
+                r="6"
+                fill="none"
+                stroke="#0284c7"
+                strokeWidth="1.75"
+              />
+              <circle
+                cx={hoverCursor.xPx}
+                cy={hoverCursor.yPx}
+                r="1.5"
                 fill="#0284c7"
-                stroke="#ffffff"
-                strokeWidth="1.5"
               />
             </g>
           )}
         </svg>
 
-        {/* Floating Tooltip Result Card */}
+        {/* Docked Inspector HUD Card — Always stays in opposite corner away from the cursor */}
         {hoverCursor && (
           <div
-            className="absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-75"
+            className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
+              hoverCursor.xPx > width / 2 ? "left-4 top-4" : "right-4 top-4"
+            }`}
             style={{
-              left: `${Math.min(hoverCursor.xPx + 12, width - 230)}px`,
-              top: `${Math.max(10, Math.min(hoverCursor.yPx - 30, height - 130))}px`,
-              minWidth: "210px",
+              minWidth: "220px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
               <span className="font-bold text-slate-900">
-                {hoverCursor.hoveredFlaw ? hoverCursor.hoveredFlaw.code : "Weld Location"}
+                {hoverCursor.hoveredFlaw ? hoverCursor.hoveredFlaw.code : "Weld Coordinates"}
               </span>
               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-100 text-sky-800">
                 {Math.abs(hoverCursor.percentOfWeldWidth)}% to {hoverCursor.indexOffsetMm >= 0 ? "Top Toe" : "Bottom Toe"}

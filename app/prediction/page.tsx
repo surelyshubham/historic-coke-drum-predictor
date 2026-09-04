@@ -431,8 +431,53 @@ export default function PredictiveModelingPage() {
               </div>
             </div>
 
+            {/* Live Readout HUD Ribbon (Always unobscured above the forecast chart) */}
+            <div className="mt-3 flex items-center justify-between bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+              {hoverData ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-medium">Date:</span>
+                    <span className="font-mono font-bold text-slate-900">{hoverData.point.date}</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${hoverData.point.isHistorical ? "bg-sky-100 text-sky-800" : "bg-purple-100 text-purple-800"}`}>
+                      {hoverData.point.isHistorical ? hoverData.point.campaignName || "Measured" : "Projected"}
+                    </span>
+                  </div>
+                  <span className="text-slate-300">|</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-medium">Depth:</span>
+                    <span className="font-mono font-bold text-sky-800">{hoverData.point.depth.toFixed(2)} mm</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 font-semibold">
+                      {((hoverData.point.depth / nominalWallThickness) * 100).toFixed(1)}% of Wall
+                    </span>
+                  </div>
+                  <span className="text-slate-300">|</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-medium">Length:</span>
+                    <span className="font-mono font-bold text-slate-800">{hoverData.point.length.toFixed(1)} mm</span>
+                  </div>
+                  <span className="text-slate-300">|</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-medium">Warning Margin:</span>
+                    <span className={`font-mono font-bold ${hoverData.point.depth >= warningDepthMm ? "text-amber-600" : "text-emerald-700"}`}>
+                      {hoverData.point.depth >= warningDepthMm ? "BREACHED" : `+${(warningDepthMm - hoverData.point.depth).toFixed(1)} mm`}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
+                  <span>🎯 Move cursor across timeline to inspect measured points, forward forecast, and critical margins</span>
+                </span>
+              )}
+
+              {selectedIndication && (
+                <div className="text-slate-500 text-[11px] font-medium hidden sm:block">
+                  Flaw: <strong className="text-slate-800">{selectedIndication.code}</strong> ({selectedIndication.weldName})
+                </div>
+              )}
+            </div>
+
             {/* Interactive SVG Chart Container with Floating Cursor */}
-            <div className="relative mt-4">
+            <div className="relative mt-2">
               <svg
                 ref={svgRef}
                 viewBox={`0 0 ${chartConfig.width} ${chartConfig.height}`}
@@ -749,35 +794,33 @@ export default function PredictiveModelingPage() {
                       strokeDasharray="3 3"
                     />
 
-                    {/* Outer pulse ring */}
+                    {/* Hollow reticle with clear center so curve and points beneath are 100% visible */}
                     <circle
                       cx={hoverData.x}
                       cy={hoverData.y}
-                      r="9"
-                      fill={curveColor}
-                      fillOpacity="0.2"
-                    />
-                    {/* Center point marker */}
-                    <circle
-                      cx={hoverData.x}
-                      cy={hoverData.y}
-                      r="4.5"
-                      fill="#ffffff"
+                      r="7"
+                      fill="none"
                       stroke={curveColor}
-                      strokeWidth="2.5"
+                      strokeWidth="1.75"
+                    />
+                    <circle
+                      cx={hoverData.x}
+                      cy={hoverData.y}
+                      r="1.75"
+                      fill={curveColor}
                     />
                   </g>
                 )}
               </svg>
 
-              {/* Floating Dynamic Tooltip Card */}
+              {/* Docked Inspector HUD Card — Always stays in opposite corner away from cursor */}
               {hoverData && (
                 <div
-                  className="absolute pointer-events-none z-20 bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-75"
+                  className={`absolute pointer-events-none z-20 bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
+                    hoverData.x > chartConfig.width / 2 ? "left-4 top-4" : "right-4 top-4"
+                  }`}
                   style={{
-                    left: `${Math.min(hoverData.x + 12, chartConfig.width - 220)}px`,
-                    top: `${Math.max(10, Math.min(hoverData.y - 45, chartConfig.height - 140))}px`,
-                    minWidth: "210px",
+                    minWidth: "220px",
                   }}
                 >
                   <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100">

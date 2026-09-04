@@ -133,14 +133,47 @@ export function WeldBevelSScanProfile({
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
-      {/* Title matching Image 3 (e.g. Indication 1_20 MM) */}
-      <div className="text-center">
-        <h4 className="text-sm font-bold text-amber-950 tracking-tight">
-          {indication.code} ({indication.latestLength} MM) — Cross-Sectional Bevel Profile
-        </h4>
-        <p className="text-[11px] text-slate-500">
-          Transverse S-Scan ultrasonic echo through-wall slice at weld joint {indication.weldName}
-        </p>
+      {/* Title & Live Readout Ribbon */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+        <div>
+          <h4 className="text-sm font-bold text-amber-950 tracking-tight">
+            {indication.code} ({indication.latestLength} MM) — Cross-Sectional Bevel Profile
+          </h4>
+          <p className="text-[11px] text-slate-500">
+            Transverse S-Scan ultrasonic echo through-wall slice at weld joint {indication.weldName}
+          </p>
+        </div>
+
+        {/* Live Coordinate Readout Ribbon (Always unobscured above the bevel profile) */}
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+          {hoverCursor ? (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Depth:</span>
+                <span className="font-mono font-bold text-sky-800">{hoverCursor.depthMm} mm</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 font-semibold">
+                  {hoverCursor.percentOfWallThickness}% of Wall
+                </span>
+              </div>
+              <span className="text-slate-300">|</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Offset:</span>
+                <span className="font-mono font-bold text-slate-900">
+                  {hoverCursor.offsetMm > 0 ? `+${hoverCursor.offsetMm}` : hoverCursor.offsetMm} mm
+                </span>
+              </div>
+              <span className="text-slate-300">|</span>
+              <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
+                <span className="text-slate-400 font-normal">Sound Wall:</span>
+                <span className="font-mono">{hoverCursor.remainingWallMm} mm</span>
+              </div>
+            </>
+          ) : (
+            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
+              <span>🎯 Move cursor across cross-section to measure depth and remaining ligament</span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* SVG Canvas with Ultrasonic Heatmap Echo and Floating Cursor */}
@@ -340,26 +373,33 @@ export function WeldBevelSScanProfile({
                 strokeWidth="1"
                 strokeDasharray="3 3"
               />
+              {/* Hollow reticle with clear center so ultrasonic echo & bevel lines beneath are 100% visible */}
               <circle
                 cx={hoverCursor.xPx}
                 cy={hoverCursor.yPx}
-                r="4.5"
+                r="6"
+                fill="none"
+                stroke="#0284c7"
+                strokeWidth="1.75"
+              />
+              <circle
+                cx={hoverCursor.xPx}
+                cy={hoverCursor.yPx}
+                r="1.5"
                 fill="#0284c7"
-                stroke="#ffffff"
-                strokeWidth="1.5"
               />
             </g>
           )}
         </svg>
 
-        {/* Floating Tooltip Card with % and Position */}
+        {/* Docked Inspector HUD Card — Always stays in opposite corner away from cursor */}
         {hoverCursor && (
           <div
-            className="absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-75"
+            className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
+              hoverCursor.xPx > width / 2 ? "left-3 top-3" : "right-3 top-3"
+            }`}
             style={{
-              left: `${Math.min(hoverCursor.xPx + 12, width - 230)}px`,
-              top: `${Math.max(10, Math.min(hoverCursor.yPx - 35, height - 140))}px`,
-              minWidth: "210px",
+              minWidth: "220px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
