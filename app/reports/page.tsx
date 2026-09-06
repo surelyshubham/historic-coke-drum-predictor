@@ -737,7 +737,7 @@ export default function ReportsPage() {
             <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
               <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                4. Ultrasonic Bevel S-Scan Cross-Section Profile
+                4. Asymmetric Double-V Weld Cross-Section Profile
               </h3>
               <div className="flex items-center gap-2 text-[11px]">
                 <span className="text-slate-500">Active Indication:</span>

@@ -6,46 +6,47 @@ import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 interface WeldBevelSScanProfileProps {
   indication: TrackedPhysicalIndication;
   nominalWallThickness?: number; // default 32 mm
-  maxDisplayDepthMm?: number; // default 6 mm (matching Image 3 depth 0-5.5mm)
 }
 
 export function WeldBevelSScanProfile({
   indication,
   nominalWallThickness = 32.0,
-  maxDisplayDepthMm = 6.0,
 }: WeldBevelSScanProfileProps) {
   const [hoverCursor, setHoverCursor] = useState<{
     xPx: number;
     yPx: number;
-    depthMm: number;
-    offsetMm: number;
+    depthFromIdMm: number;
+    distanceFromOdMm: number;
+    offsetFromCenterlineMm: number;
     percentOfWallThickness: number;
     remainingWallMm: number;
-    distanceToCenterlineMm: number;
+    zone: string;
   } | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // SVG Geometry
-  const width = 760;
-  const height = 280;
-  const margin = { top: 25, right: 35, bottom: 50, left: 60 };
+  // SVG Geometry for Vertical Through-Thickness Slice
+  const width = 680;
+  const height = 480;
+  const margin = { top: 35, right: 90, bottom: 45, left: 90 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // X range (-15 mm to +13 mm)
-  const xMin = -15;
-  const xMax = 13;
-  // Y range (0 mm to maxDisplayDepthMm, inverted so 0 is at the top)
-  const yMin = 0;
-  const yMax = maxDisplayDepthMm;
+  // Coordinate System:
+  // Horizontal (X): Through-Wall Thickness from ID (0 mm) to OD (nominalWallThickness, default 32 mm)
+  // Vertical (Y): Height along vessel shell (-45 mm to +45 mm, where 0 mm = Weld Centerline)
+  const xMin = 0;
+  const xMax = nominalWallThickness;
+  const yMin = -45; // Bottom (-45 mm)
+  const yMax = 45;  // Top (+45 mm)
 
   const scaleX = (val: number) => {
     return margin.left + ((val - xMin) / (xMax - xMin)) * innerWidth;
   };
 
   const scaleY = (val: number) => {
-    return margin.top + ((val - yMin) / (yMax - yMin)) * innerHeight;
+    // Invert Y so +45 (Top) is at the top of SVG, -45 (Bottom) is at the bottom
+    return margin.top + ((yMax - val) / (yMax - yMin)) * innerHeight;
   };
 
   const invertX = (xPx: number) => {
@@ -53,46 +54,78 @@ export function WeldBevelSScanProfile({
   };
 
   const invertY = (yPx: number) => {
-    return yMin + ((yPx - margin.top) / innerHeight) * (yMax - yMin);
+    return yMax - ((yPx - margin.top) / innerHeight) * (yMax - yMin);
   };
 
-  // Compute defect echo center
-  const defectDepth = Math.max(1.2, Math.min(yMax - 0.4, indication.latestDepth || 4.0));
-  const defectOffset = useMemo(() => {
-    const text = (indication.weldPosition || "").toUpperCase();
-    if (text.includes("BT")) return -0.8;
-    if (text.includes("TT")) return 0.6;
-    return -0.2;
-  }, [indication]);
+  // Double-V Bevel Geometry Points (matching user reference diagram):
+  // ID side (Left, x = 0 mm):
+  // Root face at x ≈ 11.5 mm, y = 0
+  // ID Top Toe (TT): x = 0 mm, y = +10.0 mm
+  // ID Bottom Toe (BT): x = 0 mm, y = -10.0 mm
+  // Root junction: x = 11.5 mm, y = 0 mm (narrower ID bevel)
+  //
+  // OD side (Right, x = 32 mm):
+  // OD Top Toe (TT): x = 32 mm, y = +18.0 mm
+  // OD Bottom Toe (BT): x = 32 mm, y = -18.0 mm
+  // Root junction: x = 11.5 mm, y = 0 mm (wider OD bevel)
+  const rootX = 11.5;
+  const idBevelTopY = 10.0;
+  const idBevelBottomY = -10.0;
+  const odBevelTopY = 18.0;
+  const odBevelBottomY = -18.0;
 
-  // Weld Bevel Profile Points (V-Groove geometry matching Image 3)
-  // Purple dashed lines (Fusion Lines):
-  // Top: x = -3 at y = 0 to 1.3, then slopes inward to x = -0.5 at y = 5.0
-  // Right: x = +3 at y = 0 to 1.3, then slopes inward to x = +0.8 at y = 5.0
-  const bevelLeftPoints = [
-    { x: -3.0, y: 0.0 },
-    { x: -3.0, y: 1.4 },
-    { x: -0.6, y: 5.4 },
-  ];
-  const bevelRightPoints = [
-    { x: 3.0, y: 0.0 },
-    { x: 3.0, y: 1.4 },
-    { x: 1.0, y: 5.4 },
-  ];
+  // Defect parameters from indication
+  const crackDepthMm = Math.max(1.5, Math.min(nominalWallThickness - 1, indication.latestDepth || 5.6));
+  const isTopToe = (indication.weldPosition || "").toUpperCase().includes("TT") || !(indication.weldPosition || "").toUpperCase().includes("BT");
+  const isOdInitiated = (indication.weldPosition || "").toUpperCase().includes("OD");
 
-  // Grey dashed lines (HAZ / Prep boundary):
-  // Left: x = -6.0 at y = 0 to 1.3, slopes to x = -3.8 at y = 5.4
-  // Right: x = 6.0 at y = 0 to 1.3, slopes to x = 4.0 at y = 5.4
-  const hazLeftPoints = [
-    { x: -6.0, y: 0.0 },
-    { x: -6.0, y: 1.4 },
-    { x: -3.8, y: 5.4 },
-  ];
-  const hazRightPoints = [
-    { x: 6.0, y: 0.0 },
-    { x: 6.0, y: 1.4 },
-    { x: 4.0, y: 5.4 },
-  ];
+  // Generate the organic propagating crack curve (Red wavy line)
+  const crackCurvePath = useMemo(() => {
+    if (!isOdInitiated) {
+      // Initiates at ID Top Toe (or Bottom Toe) and propagates toward OD
+      const startX = 0; // ID surface
+      const startY = isTopToe ? idBevelTopY : idBevelBottomY;
+      const targetDepth = crackDepthMm; // e.g. 5.6 mm or 12 mm
+
+      // Wave path points
+      const cp1X = startX + targetDepth * 0.35;
+      const cp1Y = startY + (isTopToe ? 2.2 : -2.2);
+      const cp2X = startX + targetDepth * 0.70;
+      const cp2Y = startY + (isTopToe ? -1.5 : 1.5);
+      const endX = startX + targetDepth;
+      const endY = startY + (isTopToe ? 0.5 : -0.5);
+
+      return {
+        d: `M ${scaleX(startX)} ${scaleY(startY)} C ${scaleX(cp1X)} ${scaleY(cp1Y)}, ${scaleX(cp2X)} ${scaleY(cp2Y)}, ${scaleX(endX)} ${scaleY(endY)}`,
+        tipX: endX,
+        tipY: endY,
+        originX: startX,
+        originY: startY,
+        originLabel: isTopToe ? "ID Top Toe (TT)" : "ID Bottom Toe (BT)",
+      };
+    } else {
+      // Initiates at OD
+      const startX = nominalWallThickness;
+      const startY = isTopToe ? odBevelTopY : odBevelBottomY;
+      const targetDepth = crackDepthMm;
+
+      const cp1X = startX - targetDepth * 0.35;
+      const cp1Y = startY + (isTopToe ? 2.0 : -2.0);
+      const cp2X = startX - targetDepth * 0.70;
+      const cp2Y = startY + (isTopToe ? -1.5 : 1.5);
+      const endX = startX - targetDepth;
+      const endY = startY + (isTopToe ? 0.4 : -0.4);
+
+      return {
+        d: `M ${scaleX(startX)} ${scaleY(startY)} C ${scaleX(cp1X)} ${scaleY(cp1Y)}, ${scaleX(cp2X)} ${scaleY(cp2Y)}, ${scaleX(endX)} ${scaleY(endY)}`,
+        tipX: endX,
+        tipY: endY,
+        originX: startX,
+        originY: startY,
+        originLabel: isTopToe ? "OD Top Toe (TT)" : "OD Bottom Toe (BT)",
+      };
+    }
+  }, [crackDepthMm, isTopToe, isOdInitiated, idBevelTopY, idBevelBottomY, odBevelTopY, odBevelBottomY, nominalWallThickness]);
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -110,20 +143,37 @@ export function WeldBevelSScanProfile({
       return;
     }
 
-    const depthMm = Number(Math.max(0, invertY(yPx)).toFixed(2));
-    const offsetMm = Number(invertX(xPx).toFixed(2));
-    const percentOfWallThickness = Number(((depthMm / nominalWallThickness) * 100).toFixed(1));
-    const remainingWallMm = Number(Math.max(0, nominalWallThickness - depthMm).toFixed(1));
-    const distanceToCenterlineMm = Number(Math.abs(offsetMm).toFixed(2));
+    const depthFromIdMm = Number(Math.max(0, Math.min(nominalWallThickness, invertX(xPx))).toFixed(2));
+    const distanceFromOdMm = Number((nominalWallThickness - depthFromIdMm).toFixed(2));
+    const offsetFromCenterlineMm = Number(invertY(yPx).toFixed(2));
+    const percentOfWallThickness = Number(((depthFromIdMm / nominalWallThickness) * 100).toFixed(1));
+    const remainingWallMm = Number(Math.max(0, nominalWallThickness - crackDepthMm).toFixed(1));
+
+    let zone = "Base Metal";
+    if (depthFromIdMm <= rootX) {
+      if (Math.abs(offsetFromCenterlineMm) <= idBevelTopY * (1 - depthFromIdMm / rootX)) {
+        zone = "ID Weld Metal";
+      } else if (Math.abs(offsetFromCenterlineMm) <= idBevelTopY * 1.3) {
+        zone = "ID Heat Affected Zone (HAZ)";
+      }
+    } else {
+      const odFraction = (depthFromIdMm - rootX) / (nominalWallThickness - rootX);
+      if (Math.abs(offsetFromCenterlineMm) <= odBevelTopY * odFraction) {
+        zone = "OD Weld Metal";
+      } else if (Math.abs(offsetFromCenterlineMm) <= odBevelTopY * odFraction + 4) {
+        zone = "OD Heat Affected Zone (HAZ)";
+      }
+    }
 
     setHoverCursor({
       xPx,
       yPx,
-      depthMm,
-      offsetMm,
+      depthFromIdMm,
+      distanceFromOdMm,
+      offsetFromCenterlineMm,
       percentOfWallThickness,
       remainingWallMm,
-      distanceToCenterlineMm,
+      zone,
     });
   };
 
@@ -136,244 +186,347 @@ export function WeldBevelSScanProfile({
       {/* Title & Live Readout Ribbon */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
-          <h4 className="text-sm font-bold text-amber-950 tracking-tight">
-            {indication.code} ({indication.latestLength} MM) — Cross-Sectional Bevel Profile
+          <h4 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <span>{indication.code} — Asymmetric Double-V Weld Cross-Section</span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800 uppercase tracking-wide">
+              Full {nominalWallThickness.toFixed(1)} mm Wall
+            </span>
           </h4>
           <p className="text-[11px] text-slate-500">
-            Transverse S-Scan ultrasonic echo through-wall slice at weld joint {indication.weldName}
+            Through-thickness slice showing ID/OD surfaces, Double-V bevel, and {crackCurvePath.originLabel} crack propagation
           </p>
         </div>
 
-        {/* Live Coordinate Readout Ribbon (Always unobscured above the bevel profile) */}
+        {/* Live Coordinate Readout Ribbon */}
         <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
           {hoverCursor ? (
             <>
               <div className="flex items-center gap-1.5">
-                <span className="text-slate-400 font-medium">Depth:</span>
-                <span className="font-mono font-bold text-sky-800">{hoverCursor.depthMm} mm</span>
+                <span className="text-slate-400 font-medium">Depth from ID:</span>
+                <span className="font-mono font-bold text-sky-800">{hoverCursor.depthFromIdMm} mm</span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 font-semibold">
-                  {hoverCursor.percentOfWallThickness}% of Wall
+                  {hoverCursor.percentOfWallThickness}%
                 </span>
               </div>
               <span className="text-slate-300">|</span>
               <div className="flex items-center gap-1.5">
                 <span className="text-slate-400 font-medium">Offset:</span>
                 <span className="font-mono font-bold text-slate-900">
-                  {hoverCursor.offsetMm > 0 ? `+${hoverCursor.offsetMm}` : hoverCursor.offsetMm} mm
+                  {hoverCursor.offsetFromCenterlineMm > 0 ? `+${hoverCursor.offsetFromCenterlineMm}` : hoverCursor.offsetFromCenterlineMm} mm
                 </span>
               </div>
               <span className="text-slate-300">|</span>
               <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
-                <span className="text-slate-400 font-normal">Sound Wall:</span>
-                <span className="font-mono">{hoverCursor.remainingWallMm} mm</span>
+                <span className="text-slate-400 font-normal">Zone:</span>
+                <span>{hoverCursor.zone}</span>
               </div>
             </>
           ) : (
             <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
-              <span>🎯 Move cursor across cross-section to measure depth and remaining ligament</span>
+              <span>🎯 Move cursor across the 32 mm cross-section to measure depth and remaining ligament</span>
             </span>
           )}
         </div>
       </div>
 
-      {/* SVG Canvas with Ultrasonic Heatmap Echo and Floating Cursor */}
-      <div className="relative border border-slate-300 rounded-lg overflow-hidden bg-[#f8fafc] shadow-inner">
+      {/* SVG Canvas Matching the User's Engineering Double-V Reference Diagram */}
+      <div className="relative border border-slate-300 rounded-lg overflow-hidden bg-white shadow-inner flex justify-center py-2">
         <svg
           ref={svgRef}
           viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-auto select-none cursor-crosshair"
+          className="w-full max-w-[660px] h-auto select-none cursor-crosshair overflow-visible"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
           <defs>
-            {/* Ultrasonic Jet/Rainbow Colormap Gradient */}
-            <radialGradient id={`ultrasonicJet-${indication.code}`} cx="45%" cy="40%" r="55%">
-              <stop offset="0%" stopColor="#b91c1c" stopOpacity="0.95" /> {/* Peak core: Dark Red */}
-              <stop offset="25%" stopColor="#ea580c" stopOpacity="0.90" /> {/* Hot core: Orange */}
-              <stop offset="50%" stopColor="#eab308" stopOpacity="0.85" /> {/* Yellow */}
-              <stop offset="70%" stopColor="#16a34a" stopOpacity="0.75" /> {/* Green */}
-              <stop offset="88%" stopColor="#0284c7" stopOpacity="0.60" /> {/* Cyan / Blue */}
-              <stop offset="100%" stopColor="#1e3a8a" stopOpacity="0.0" /> {/* Transparent Edge */}
+            {/* Ultrasonic Amplitude Echo Heatmap for Crack Tip */}
+            <radialGradient id={`crackTipJet-${indication.code}`} cx="45%" cy="45%" r="55%">
+              <stop offset="0%" stopColor="#b91c1c" stopOpacity="0.95" />
+              <stop offset="30%" stopColor="#ea580c" stopOpacity="0.90" />
+              <stop offset="55%" stopColor="#eab308" stopOpacity="0.80" />
+              <stop offset="75%" stopColor="#16a34a" stopOpacity="0.65" />
+              <stop offset="100%" stopColor="#0284c7" stopOpacity="0.0" />
             </radialGradient>
           </defs>
 
-          {/* Plot Area Outer Border */}
-          <rect
-            x={margin.left}
-            y={margin.top}
-            width={innerWidth}
-            height={innerHeight}
-            fill="#f8fafc"
-            stroke="#94a3b8"
+          {/* Vessel Shell Wall Solid Black Boundaries */}
+          {/* Top Wall Cap line */}
+          <line
+            x1={scaleX(xMin)}
+            y1={scaleY(yMax)}
+            x2={scaleX(xMax)}
+            y2={scaleY(yMax)}
+            stroke="#0f172a"
+            strokeWidth="3.5"
+          />
+          {/* Bottom Wall Cap line */}
+          <line
+            x1={scaleX(xMin)}
+            y1={scaleY(yMin)}
+            x2={scaleX(xMax)}
+            y2={scaleY(yMin)}
+            stroke="#0f172a"
+            strokeWidth="3.5"
+          />
+
+          {/* ID Surface Line (Left boundary) */}
+          <line
+            x1={scaleX(xMin)}
+            y1={scaleY(yMin)}
+            x2={scaleX(xMin)}
+            y2={scaleY(yMax)}
+            stroke="#0f172a"
+            strokeWidth="3.5"
+          />
+
+          {/* OD Surface Line (Right boundary) */}
+          <line
+            x1={scaleX(xMax)}
+            y1={scaleY(yMin)}
+            x2={scaleX(xMax)}
+            y2={scaleY(yMax)}
+            stroke="#0f172a"
+            strokeWidth="3.5"
+          />
+
+          {/* Asymmetric Double-V Weld Metal Fill (Grey Hourglass Shape matching user diagram) */}
+          {/* Left / ID Bevel Triangle: (0, idBevelBottomY) -> (rootX, 0) -> (0, idBevelTopY) */}
+          <polygon
+            points={`
+              ${scaleX(0)},${scaleY(idBevelBottomY)}
+              ${scaleX(rootX)},${scaleY(0)}
+              ${scaleX(0)},${scaleY(idBevelTopY)}
+            `}
+            fill="#cbd5e1"
+            stroke="#64748b"
             strokeWidth="1.2"
           />
 
-          {/* Weld Centerline (Green dashed line at 0 mm) */}
+          {/* Right / OD Bevel Triangle: (nominalWallThickness, odBevelBottomY) -> (rootX, 0) -> (nominalWallThickness, odBevelTopY) */}
+          <polygon
+            points={`
+              ${scaleX(nominalWallThickness)},${scaleY(odBevelBottomY)}
+              ${scaleX(rootX)},${scaleY(0)}
+              ${scaleX(nominalWallThickness)},${scaleY(odBevelTopY)}
+            `}
+            fill="#cbd5e1"
+            stroke="#64748b"
+            strokeWidth="1.2"
+          />
+
+          {/* Green Horizontal Weld Centerline */}
           <line
-            x1={scaleX(0)}
-            y1={margin.top}
-            x2={scaleX(0)}
-            y2={margin.top + innerHeight}
-            stroke="#22c55e"
-            strokeWidth="1.5"
-            strokeDasharray="6 3 2 3"
+            x1={scaleX(xMin) - 30}
+            y1={scaleY(0)}
+            x2={scaleX(xMax) + 30}
+            y2={scaleY(0)}
+            stroke="#86efac"
+            strokeWidth="1.2"
           />
 
-          {/* Weld Bevel Fusion Lines (Purple dashed angled lines) */}
-          <path
-            d={`M ${scaleX(bevelLeftPoints[0].x)} ${scaleY(bevelLeftPoints[0].y)} L ${scaleX(bevelLeftPoints[1].x)} ${scaleY(bevelLeftPoints[1].y)} L ${scaleX(bevelLeftPoints[2].x)} ${scaleY(bevelLeftPoints[2].y)}`}
-            fill="none"
-            stroke="#7e22ce"
-            strokeWidth="1.6"
-            strokeDasharray="5 3"
-          />
-          <path
-            d={`M ${scaleX(bevelRightPoints[0].x)} ${scaleY(bevelRightPoints[0].y)} L ${scaleX(bevelRightPoints[1].x)} ${scaleY(bevelRightPoints[1].y)} L ${scaleX(bevelRightPoints[2].x)} ${scaleY(bevelRightPoints[2].y)}`}
-            fill="none"
-            stroke="#7e22ce"
-            strokeWidth="1.6"
-            strokeDasharray="5 3"
-          />
+          {/* Weld Center Text Label at right edge */}
+          <text
+            x={scaleX(xMax) + 35}
+            y={scaleY(0) + 3.5}
+            textAnchor="start"
+            fontSize="10"
+            fontFamily="sans-serif"
+            fill="#64748b"
+            transform={`rotate(90, ${scaleX(xMax) + 35}, ${scaleY(0)})`}
+          >
+            Weld Center
+          </text>
 
-          {/* Heat Affected Zone (HAZ) Boundaries (Grey dashed angled lines) */}
-          <path
-            d={`M ${scaleX(hazLeftPoints[0].x)} ${scaleY(hazLeftPoints[0].y)} L ${scaleX(hazLeftPoints[1].x)} ${scaleY(hazLeftPoints[1].y)} L ${scaleX(hazLeftPoints[2].x)} ${scaleY(hazLeftPoints[2].y)}`}
-            fill="none"
-            stroke="#64748b"
-            strokeWidth="1.4"
-            strokeDasharray="4 4"
-          />
-          <path
-            d={`M ${scaleX(hazRightPoints[0].x)} ${scaleY(hazRightPoints[0].y)} L ${scaleX(hazRightPoints[1].x)} ${scaleY(hazRightPoints[1].y)} L ${scaleX(hazRightPoints[2].x)} ${scaleY(hazRightPoints[2].y)}`}
-            fill="none"
-            stroke="#64748b"
-            strokeWidth="1.4"
-            strokeDasharray="4 4"
-          />
+          {/* ID Surface Label */}
+          <text
+            x={scaleX(xMin) - 16}
+            y={scaleY(20)}
+            textAnchor="end"
+            fontSize="13"
+            fontWeight="bold"
+            fontFamily="sans-serif"
+            fill="#0f172a"
+          >
+            ID
+          </text>
 
-          {/* Ultrasonic Echo Cluster (Phased array heatmap matching Image 3) */}
-          <g className="ultrasonic-echo">
-            {/* Tilted outer envelope */}
-            <ellipse
-              cx={scaleX(defectOffset)}
-              cy={scaleY(defectDepth)}
-              rx="16"
-              ry="26"
-              fill={`url(#ultrasonicJet-${indication.code})`}
-              transform={`rotate(-12, ${scaleX(defectOffset)}, ${scaleY(defectDepth)})`}
+          {/* OD Surface Label */}
+          <text
+            x={scaleX(xMax) + 16}
+            y={scaleY(20)}
+            textAnchor="start"
+            fontSize="13"
+            fontWeight="bold"
+            fontFamily="sans-serif"
+            fill="#0f172a"
+          >
+            OD
+          </text>
+
+          {/* ID Landmarks: TT (Top Toe) and BT (Bottom Toe) */}
+          <text
+            x={scaleX(xMin) - 12}
+            y={scaleY(idBevelTopY) + 3.5}
+            textAnchor="end"
+            fontSize="12"
+            fontWeight="600"
+            fontFamily="sans-serif"
+            fill="#0f172a"
+          >
+            TT
+          </text>
+          <text
+            x={scaleX(xMin) - 12}
+            y={scaleY(idBevelBottomY) + 3.5}
+            textAnchor="end"
+            fontSize="12"
+            fontWeight="600"
+            fontFamily="sans-serif"
+            fill="#0f172a"
+          >
+            BT
+          </text>
+
+          {/* OD Landmarks: TT (Top Toe) and BT (Bottom Toe) */}
+          <text
+            x={scaleX(xMax) + 12}
+            y={scaleY(odBevelTopY) + 3.5}
+            textAnchor="start"
+            fontSize="12"
+            fontWeight="600"
+            fontFamily="sans-serif"
+            fill="#0f172a"
+          >
+            TT
+          </text>
+          <text
+            x={scaleX(xMax) + 12}
+            y={scaleY(odBevelBottomY) + 3.5}
+            textAnchor="start"
+            fontSize="12"
+            fontWeight="600"
+            fontFamily="sans-serif"
+            fill="#0f172a"
+          >
+            BT
+          </text>
+
+          {/* Propagating Crack (Red Wavy Curve matching user diagram) */}
+          <g className="propagating-crack">
+            {/* Glow backing */}
+            <path
+              d={crackCurvePath.d}
+              fill="none"
+              stroke="#fca5a5"
+              strokeWidth="6"
+              strokeLinecap="round"
+              strokeOpacity="0.4"
             />
-            {/* High amplitude hotspot */}
+            {/* Main Red Crack Path */}
+            <path
+              d={crackCurvePath.d}
+              fill="none"
+              stroke="#dc2626"
+              strokeWidth="2.8"
+              strokeLinecap="round"
+            />
+
+            {/* Crack Origin Dot */}
             <circle
-              cx={scaleX(defectOffset)}
-              cy={scaleY(defectDepth)}
-              r="4.5"
-              fill="#dc2626"
-              fillOpacity="0.9"
+              cx={scaleX(crackCurvePath.originX)}
+              cy={scaleY(crackCurvePath.originY)}
+              r="3.5"
+              fill="#b91c1c"
+            />
+
+            {/* Ultrasonic Amplitude Echo Heatmap at Crack Tip */}
+            <circle
+              cx={scaleX(crackCurvePath.tipX)}
+              cy={scaleY(crackCurvePath.tipY)}
+              r="14"
+              fill={`url(#crackTipJet-${indication.code})`}
+            />
+            {/* Sharp Crack Tip Hotspot */}
+            <circle
+              cx={scaleX(crackCurvePath.tipX)}
+              cy={scaleY(crackCurvePath.tipY)}
+              r="3"
+              fill="#991b1b"
             />
           </g>
 
-          {/* Y-Axis (Depth mm) Ticks: 0, 1, 2, 3, 4, 5 */}
-          {[0, 1, 2, 3, 4, 5].map((d) => {
-            const y = scaleY(d);
-            return (
-              <g key={d}>
-                <line
-                  x1={margin.left - 5}
-                  y1={y}
-                  x2={margin.left}
-                  y2={y}
-                  stroke="#334155"
-                  strokeWidth="1"
-                />
-                <text
-                  x={margin.left - 8}
-                  y={y + 3.5}
-                  textAnchor="end"
-                  fontSize="10"
-                  fontFamily="sans-serif"
-                  fill="#1e293b"
-                  fontWeight="600"
-                >
-                  {d}
-                </text>
-              </g>
-            );
-          })}
+          {/* Crack Depth Callout Annotation */}
+          <g transform={`translate(${scaleX(crackCurvePath.tipX) + 12}, ${scaleY(crackCurvePath.tipY) - 10})`}>
+            <rect
+              x="-4"
+              y="-12"
+              width="110"
+              height="20"
+              rx="4"
+              fill="#ffffff"
+              fillOpacity="0.92"
+              stroke="#e2e8f0"
+            />
+            <text
+              x="2"
+              y="2"
+              fontSize="10"
+              fontWeight="bold"
+              fontFamily="sans-serif"
+              fill="#dc2626"
+            >
+              Crack Tip: {crackDepthMm.toFixed(1)} mm
+            </text>
+          </g>
 
-          {/* X-Axis (Index Offset mm) Ticks: -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12 */}
-          {[-14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12].map((o) => {
-            const x = scaleX(o);
-            return (
-              <g key={o}>
-                <line
-                  x1={x}
-                  y1={margin.top + innerHeight}
-                  x2={x}
-                  y2={margin.top + innerHeight + 5}
-                  stroke="#334155"
-                  strokeWidth="1"
-                />
-                <text
-                  x={x}
-                  y={margin.top + innerHeight + 17}
-                  textAnchor="middle"
-                  fontSize="9.5"
-                  fontFamily="sans-serif"
-                  fill="#1e293b"
-                  fontWeight="600"
-                >
-                  {o}
-                </text>
-              </g>
-            );
-          })}
+          {/* Horizontal Thickness Dimension Ruler at bottom */}
+          <g transform={`translate(0, ${scaleY(yMin) + 20})`}>
+            <line
+              x1={scaleX(xMin)}
+              y1="0"
+              x2={scaleX(xMax)}
+              y2="0"
+              stroke="#475569"
+              strokeWidth="1"
+            />
+            <line x1={scaleX(xMin)} y1="-4" x2={scaleX(xMin)} y2="4" stroke="#475569" strokeWidth="1" />
+            <line x1={scaleX(xMax)} y1="-4" x2={scaleX(xMax)} y2="4" stroke="#475569" strokeWidth="1" />
+            <text
+              x={(scaleX(xMin) + scaleX(xMax)) / 2}
+              y="-6"
+              textAnchor="middle"
+              fontSize="10"
+              fontWeight="bold"
+              fontFamily="sans-serif"
+              fill="#334155"
+            >
+              Nominal Wall Thickness: {nominalWallThickness.toFixed(1)} mm
+            </text>
+          </g>
 
-          {/* Axis Labels */}
-          <text
-            x={margin.left + innerWidth / 2}
-            y={height - 10}
-            textAnchor="middle"
-            fontSize="10.5"
-            fontWeight="bold"
-            fill="#0f172a"
-          >
-            Index Offset (mm)
-          </text>
-
-          <text
-            x={-(margin.top + innerHeight / 2)}
-            y={18}
-            textAnchor="middle"
-            transform="rotate(-90)"
-            fontSize="10.5"
-            fontWeight="bold"
-            fill="#0f172a"
-          >
-            Depth (mm)
-          </text>
-
-          {/* Floating Crosshair Cursor */}
+          {/* Interactive Floating Crosshair Cursor */}
           {hoverCursor && (
-            <g className="floating-cursor pointer-events-none">
+            <g className="floating-crosshair pointer-events-none">
               <line
                 x1={hoverCursor.xPx}
-                y1={margin.top}
+                y1={scaleY(yMax)}
                 x2={hoverCursor.xPx}
-                y2={margin.top + innerHeight}
+                y2={scaleY(yMin)}
                 stroke="#64748b"
                 strokeWidth="1"
                 strokeDasharray="3 3"
               />
               <line
-                x1={margin.left}
+                x1={scaleX(xMin)}
                 y1={hoverCursor.yPx}
-                x2={margin.left + innerWidth}
+                x2={scaleX(xMax)}
                 y2={hoverCursor.yPx}
                 stroke="#64748b"
                 strokeWidth="1"
                 strokeDasharray="3 3"
               />
-              {/* Hollow reticle with clear center so ultrasonic echo & bevel lines beneath are 100% visible */}
+
+              {/* Hollow reticle with clear center */}
               <circle
                 cx={hoverCursor.xPx}
                 cy={hoverCursor.yPx}
@@ -392,52 +545,63 @@ export function WeldBevelSScanProfile({
           )}
         </svg>
 
-        {/* Docked Inspector HUD Card — Always stays in opposite corner away from cursor */}
+        {/* Docked Inspector HUD Card — Stays in opposite corner */}
         {hoverCursor && (
           <div
             className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
               hoverCursor.xPx > width / 2 ? "left-3 top-3" : "right-3 top-3"
             }`}
             style={{
-              minWidth: "220px",
+              minWidth: "230px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
-              <span className="font-bold text-slate-900">Bevel Cross-Section</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-100 text-sky-800">
-                {hoverCursor.percentOfWallThickness}% of Wall
+              <span className="font-bold text-slate-900">Through-Wall Slice</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-sky-100 text-sky-800">
+                {hoverCursor.percentOfWallThickness}% Depth
               </span>
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between">
-                <span className="text-slate-500">Through-Wall Depth:</span>
-                <span className="font-mono font-bold text-sky-800">{hoverCursor.depthMm} mm</span>
+                <span className="text-slate-500">Depth from ID:</span>
+                <span className="font-mono font-bold text-sky-800">{hoverCursor.depthFromIdMm} mm</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Index Offset:</span>
+                <span className="text-slate-500">Distance from OD:</span>
+                <span className="font-mono font-bold text-slate-900">{hoverCursor.distanceFromOdMm} mm</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Centerline Offset:</span>
                 <span className="font-mono font-bold text-slate-900">
-                  {hoverCursor.offsetMm > 0 ? `+${hoverCursor.offsetMm}` : hoverCursor.offsetMm} mm
+                  {hoverCursor.offsetFromCenterlineMm > 0 ? `+${hoverCursor.offsetFromCenterlineMm}` : hoverCursor.offsetFromCenterlineMm} mm
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Distance to Centerline:</span>
-                <span className="font-mono text-slate-700">{hoverCursor.distanceToCenterlineMm} mm</span>
+                <span className="text-slate-500">Material Zone:</span>
+                <span className="font-semibold text-slate-700">{hoverCursor.zone}</span>
               </div>
-              <div className="pt-1 border-t border-slate-100 flex justify-between">
+              <div className="pt-1.5 border-t border-slate-100 flex justify-between">
                 <span className="text-slate-500">Remaining Sound Wall:</span>
-                <span className="font-bold text-emerald-700 font-mono">{hoverCursor.remainingWallMm} mm</span>
+                <span className="font-bold text-emerald-700 font-mono">
+                  {(nominalWallThickness - crackDepthMm).toFixed(1)} mm
+                </span>
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Cross-section details */}
-      <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-        <span>Defect Echo Peak: <strong className="text-slate-800">{defectDepth.toFixed(1)} mm depth</strong> at <strong className="text-slate-800">{defectOffset > 0 ? `+${defectOffset}` : defectOffset} mm offset</strong></span>
-        <span>Nominal Wall Thickness: <strong className="text-slate-800">{nominalWallThickness.toFixed(1)} mm</strong></span>
+      {/* Cross-Section Engineering Metadata */}
+      <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-slate-100">
+        <div className="flex items-center gap-4">
+          <span>Crack Origin: <strong className="text-red-700">{crackCurvePath.originLabel}</strong></span>
+          <span>Measured Depth: <strong className="text-red-700">{crackDepthMm.toFixed(1)} mm</strong> ({((crackDepthMm / nominalWallThickness) * 100).toFixed(1)}% of wall)</span>
+          <span>Sound Ligament: <strong className="text-emerald-700 font-mono">{(nominalWallThickness - crackDepthMm).toFixed(1)} mm</strong></span>
+        </div>
+        <span className="text-slate-400 italic">Asymmetric Double-V (X-Groove) • Weld Center 0 mm</span>
       </div>
     </div>
   );
 }
+

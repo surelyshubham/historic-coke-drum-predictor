@@ -535,7 +535,7 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
                   spacing: { after: 200 },
                   children: [
                     new TextRun({
-                      text: "Figure 3: Ultrasonic Bevel S-Scan Cross-Section Profile with Jet/Rainbow Amplitude Heatmap",
+                      text: "Figure 3: Through-Wall Weld Cross-Section Profile (Asymmetric Double-V Bevel with ID/OD Boundaries, Top Toe / Bottom Toe Landmarks, and Propagating Crack)",
                       italics: true,
                       bold: true,
                       size: 17,
@@ -548,8 +548,8 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
                 new Paragraph({
                   bullet: { level: 0 },
                   children: [
-                    new TextRun({ text: "Bevel Ultrasonic S-Scan Cross-Section: ", bold: true }),
-                    new TextRun({ text: "Transverse V-groove slice displaying the ultrasonic Jet/Rainbow amplitude echo and remaining sound wall ligament." }),
+                    new TextRun({ text: "Weld Bevel Cross-Section Profile: ", bold: true }),
+                    new TextRun({ text: "Vertical through-wall slice showing the asymmetric Double-V weld geometry, ID/OD boundaries, Top Toe (TT) and Bottom Toe (BT) landmarks, and thermal crack propagation with ultrasonic tip echo." }),
                   ],
                 }),
               ]),
