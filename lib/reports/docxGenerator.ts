@@ -453,7 +453,7 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
                   spacing: { after: 200 },
                   children: [
                     new TextRun({
-                      text: `Figure 1: Full 360° Circumferential Polar Ring Map (~${circumferenceM} m Shell Cross-Section with 0–146 Segment Badges)`,
+                      text: `Figure 1: Full 360° Circumferential Polar Ring Map (~${circumferenceM} m Shell Cross-Section, North 0°, Anticlockwise Scan with Slots L1–L28)`,
                       italics: true,
                       bold: true,
                       size: 17,
@@ -467,7 +467,7 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
                   bullet: { level: 0 },
                   children: [
                     new TextRun({ text: "360° Circular Polar Ring Map: ", bold: true }),
-                    new TextRun({ text: `Displays complete circumferential shell cross-section (~${circumferenceM} m perimeter) with 0–146 segment badges and flaw arcs.` }),
+                    new TextRun({ text: `Displays complete circumferential shell cross-section (~${circumferenceM} m perimeter) scanned anticlockwise from North 0° with 28 longitudinal slots (L1–L28) and depth-tiered flaw severity bands.` }),
                   ],
                 }),
               ]),

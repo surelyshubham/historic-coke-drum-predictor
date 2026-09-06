@@ -688,7 +688,7 @@ export default function ReportsPage() {
                 <span className="w-2 h-2 rounded-full bg-sky-600"></span>
                 2. 360° Circumferential Polar Ring Map (Shell Cross-Section)
               </h3>
-              <span className="text-[11px] text-slate-500">0 to 146 Segment Badges ({circumferenceM} m Perimeter)</span>
+              <span className="text-[11px] text-slate-500">North 0° • Anticlockwise Scan • Slots L1–L28 ({circumferenceM} m Perimeter)</span>
             </div>
 
             <div id="report-polar-ring-container">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 
 interface PolarCircumferentialRingMapProps {
@@ -27,52 +27,109 @@ export function PolarCircumferentialRingMap({
     positionMm: number;
     positionMeters: number;
     percentCircumference: number;
+    currentSlot: string;
     hoveredFlaw: TrackedPhysicalIndication | null;
   } | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // Geometry
-  const size = 560;
+  // SVG Geometry
+  const size = 620;
   const center = size / 2;
-  const outerRadius = 220;
-  const innerRadius = 180;
+  const outerRadius = 230;
+  const innerRadius = 188;
   const midRadius = (outerRadius + innerRadius) / 2;
+  const slotLabelRadius = 168; // Inside the inner circle
 
-  // Discrete segment tick values matching Image 2 reference exactly
-  // [0, 13, 27, 40, 53, 66, 80, 93, 106, 120, 133, 146]
-  const segmentTicks = [
-    { label: "0", mm: 0 },
-    { label: "13", mm: (13 / 160) * totalCircumferenceMm },
-    { label: "27", mm: (27 / 160) * totalCircumferenceMm },
-    { label: "40", mm: (40 / 160) * totalCircumferenceMm },
-    { label: "53", mm: (53 / 160) * totalCircumferenceMm },
-    { label: "66", mm: (66 / 160) * totalCircumferenceMm },
-    { label: "80", mm: (80 / 160) * totalCircumferenceMm },
-    { label: "93", mm: (93 / 160) * totalCircumferenceMm },
-    { label: "106", mm: (106 / 160) * totalCircumferenceMm },
-    { label: "120", mm: (120 / 160) * totalCircumferenceMm },
-    { label: "133", mm: (133 / 160) * totalCircumferenceMm },
-    { label: "146", mm: (146 / 160) * totalCircumferenceMm },
-  ];
+  // 28 Longitudinal Slots (L1 to L28) around the full 360° circumference
+  const TOTAL_SLOTS = 28;
+  const slotSpanDeg = 360 / TOTAL_SLOTS; // ~12.857 degrees per slot
 
-  // Helper to convert mm to angle in radians and degrees (0 mm at top = -90 deg / -PI/2)
+  // Coordinate Conversion:
+  // 0° = NORTH (top center: -90 deg or -PI/2)
+  // Scan direction is ANTICLOCKWISE (counterclockwise):
+  // 0° (North), 90° (West / 9 o'clock), 180° (South / 6 o'clock), 270° (East / 3 o'clock)
   const mmToAngle = (mm: number) => {
-    const fraction = (mm % totalCircumferenceMm) / totalCircumferenceMm;
-    const angleRad = fraction * 2 * Math.PI - Math.PI / 2;
-    const angleDeg = (fraction * 360);
+    const fraction = ((mm % totalCircumferenceMm) + totalCircumferenceMm) % totalCircumferenceMm / totalCircumferenceMm;
+    const angleDeg = fraction * 360;
+    // In SVG screen space: 0 deg (North) is at -PI/2.
+    // Anticlockwise means decreasing angle in standard math, so:
+    // angleRad = -PI/2 - (fraction * 2 * PI)
+    const angleRad = -Math.PI / 2 - fraction * 2 * Math.PI;
     return { angleRad, angleDeg };
   };
 
-  // Helper to create SVG arc path
-  const describeArc = (x: number, y: number, radius: number, startAngleRad: number, endAngleRad: number) => {
-    const startX = x + radius * Math.cos(startAngleRad);
-    const startY = y + radius * Math.sin(startAngleRad);
-    const endX = x + radius * Math.cos(endAngleRad);
-    const endY = y + radius * Math.sin(endAngleRad);
-    const largeArcFlag = endAngleRad - startAngleRad <= Math.PI ? "0" : "1";
+  const degToAngleRad = (deg: number) => {
+    return -Math.PI / 2 - (deg / 360) * 2 * Math.PI;
+  };
 
-    return `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY}`;
+  // Helper to create SVG arc path in anticlockwise direction
+  const describeAnticlockwiseArc = (
+    cx: number,
+    cy: number,
+    radius: number,
+    startAngleRad: number,
+    endAngleRad: number
+  ) => {
+    const startX = cx + radius * Math.cos(startAngleRad);
+    const startY = cy + radius * Math.sin(startAngleRad);
+    const endX = cx + radius * Math.cos(endAngleRad);
+    const endY = cy + radius * Math.sin(endAngleRad);
+
+    // Difference in clockwise direction vs anticlockwise:
+    // In SVG coordinate system, y is down.
+    // sweep-flag = 0 gives counter-clockwise (anticlockwise) arc!
+    let diff = startAngleRad - endAngleRad;
+    while (diff < 0) diff += 2 * Math.PI;
+    const largeArcFlag = diff > Math.PI ? "1" : "0";
+
+    return `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${endX} ${endY}`;
+  };
+
+  // 28 Slots generated consecutively anticlockwise starting from North 0°
+  const slots = useMemo(() => {
+    return Array.from({ length: TOTAL_SLOTS }, (_, idx) => {
+      const slotNum = idx + 1; // 1 to 28
+      const startDeg = idx * slotSpanDeg;
+      const endDeg = (idx + 1) * slotSpanDeg;
+      const midDeg = (startDeg + endDeg) / 2;
+
+      // Divider tick mark at start of each slot
+      const divAngleRad = degToAngleRad(startDeg);
+      const tickX1 = center + innerRadius * Math.cos(divAngleRad);
+      const tickY1 = center + innerRadius * Math.sin(divAngleRad);
+      const tickX2 = center + outerRadius * Math.cos(divAngleRad);
+      const tickY2 = center + outerRadius * Math.sin(divAngleRad);
+
+      // Slot label center coordinates
+      const midAngleRad = degToAngleRad(midDeg);
+      const labelX = center + slotLabelRadius * Math.cos(midAngleRad);
+      const labelY = center + slotLabelRadius * Math.sin(midAngleRad);
+
+      return {
+        label: `L${slotNum}`,
+        slotNum,
+        startDeg,
+        endDeg,
+        midDeg,
+        divAngleRad,
+        tick: { tickX1, tickY1, tickX2, tickY2 },
+        labelPos: { x: labelX, y: labelY },
+      };
+    });
+  }, [center, innerRadius, outerRadius, slotLabelRadius, slotSpanDeg]);
+
+  // Authentic Color mapping matching reference drawing:
+  // Green: No crack
+  // Yellow: 0.5 to 3mm
+  // Orange: 3.1 to 6mm
+  // Red: 6.1 to 10mm
+  // Dark Red: above 10mm
+  const getFlawDepthColor = (depth: number) => {
+    if (depth <= 3.0) return "#eab308"; // Yellow (0.5 to 3mm)
+    if (depth <= 6.0) return "#f97316"; // Orange (3.1 to 6mm)
+    if (depth <= 10.0) return "#dc2626"; // Red (6.1 to 10mm)
+    return "#991b1b"; // Dark Red (above 10mm)
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -85,22 +142,34 @@ export function PolarCircumferentialRingMap({
     const dy = y - center;
     const distFromCenter = Math.sqrt(dx * dx + dy * dy);
 
-    // Calculate angle in radians: clockwise from top (-PI/2)
-    let theta = Math.atan2(dy, dx) + Math.PI / 2;
-    if (theta < 0) theta += 2 * Math.PI;
+    // Compute angle from top (-PI/2) in ANTICLOCKWISE direction
+    // Standard Math.atan2(dy, dx) has 0 at 3 o'clock, +PI/2 at 6 o'clock (clockwise).
+    // Invert angle for anticlockwise:
+    let angleRadFromTop = -Math.PI / 2 - Math.atan2(dy, dx);
+    while (angleRadFromTop < 0) angleRadFromTop += 2 * Math.PI;
+    while (angleRadFromTop >= 2 * Math.PI) angleRadFromTop -= 2 * Math.PI;
 
-    const fraction = theta / (2 * Math.PI);
+    const fraction = angleRadFromTop / (2 * Math.PI);
     const angleDeg = Number((fraction * 360).toFixed(1));
     const positionMm = Math.round(fraction * totalCircumferenceMm);
     const positionMeters = Number((positionMm / 1000).toFixed(2));
     const percentCircumference = Number((fraction * 100).toFixed(1));
+
+    // Determine current slot L1 - L28
+    const slotIdx = Math.min(TOTAL_SLOTS - 1, Math.floor(fraction * TOTAL_SLOTS));
+    const currentSlot = `L${slotIdx + 1}`;
 
     // Check if hovering over any flaw
     let hoveredFlaw: TrackedPhysicalIndication | null = null;
     for (const pi of indications) {
       const start = pi.circumferentialPosition;
       const end = start + Math.max(100, pi.latestLength || 500);
-      if (positionMm >= start && positionMm <= end && distFromCenter >= innerRadius - 15 && distFromCenter <= outerRadius + 15) {
+      if (
+        positionMm >= start &&
+        positionMm <= end &&
+        distFromCenter >= innerRadius - 20 &&
+        distFromCenter <= outerRadius + 20
+      ) {
         hoveredFlaw = pi;
         break;
       }
@@ -113,6 +182,7 @@ export function PolarCircumferentialRingMap({
       positionMm,
       positionMeters,
       percentCircumference,
+      currentSlot,
       hoveredFlaw,
     });
   };
@@ -121,23 +191,36 @@ export function PolarCircumferentialRingMap({
     setHoverPolar(null);
   };
 
+  // Cardinal direction positions
+  const cardinalRadius = outerRadius + 24;
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
       {/* Title & Live Readout Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
-          <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-            360° Circular Circumferential Weld Map (Polar Ring View)
+          <h3 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <span>360° Circular Circumferential Weld Map (Polar Ring View)</span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800 uppercase tracking-wide">
+              Anticlockwise Scan • North 0°
+            </span>
           </h3>
           <p className="text-[11px] text-slate-500">
-            Full 360° vessel cross-section for {drumName} ({weldName}) with circumferential distance badges (0–146 units)
+            Coke Drum <strong>{drumName}</strong> ({weldName}) with 28 longitudinal slots (L1–L28) and depth-tiered indication arcs
           </p>
         </div>
 
-        {/* Live Coordinate Readout Ribbon (Always completely unobscured above the ring) */}
+        {/* Live Coordinate Readout Ribbon */}
         <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
           {hoverPolar ? (
             <>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Slot:</span>
+                <span className="font-mono font-extrabold text-sky-700 bg-sky-100/70 px-1.5 py-0.5 rounded">
+                  {hoverPolar.currentSlot}
+                </span>
+              </div>
+              <span className="text-slate-300">|</span>
               <div className="flex items-center gap-1.5">
                 <span className="text-slate-400 font-medium">Angle θ:</span>
                 <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}°</span>
@@ -145,9 +228,9 @@ export function PolarCircumferentialRingMap({
               <span className="text-slate-300">|</span>
               <div className="flex items-center gap-1.5">
                 <span className="text-slate-400 font-medium">Pos:</span>
-                <span className="font-mono font-bold text-sky-700">{hoverPolar.positionMeters} m</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 font-semibold">
-                  {hoverPolar.percentCircumference}% of 360°
+                <span className="font-mono font-bold text-sky-800">{hoverPolar.positionMeters} m</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 font-semibold">
+                  {hoverPolar.percentCircumference}%
                 </span>
               </div>
               {hoverPolar.hoveredFlaw && (
@@ -162,7 +245,7 @@ export function PolarCircumferentialRingMap({
             </>
           ) : (
             <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
-              <span>🎯 Move cursor around the ring perimeter to inspect radial coordinates & flaws</span>
+              <span>🎯 Move cursor around the ring perimeter to inspect radial coordinates &amp; slots</span>
             </span>
           )}
         </div>
@@ -173,31 +256,31 @@ export function PolarCircumferentialRingMap({
         <svg
           ref={svgRef}
           viewBox={`0 0 ${size} ${size}`}
-          className="w-full max-w-[500px] h-auto select-none cursor-crosshair overflow-visible"
+          className="w-full max-w-[560px] h-auto select-none cursor-crosshair overflow-visible"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
-          {/* Outer Vessel Shell Boundary (Solid black line matching Image 2) */}
+          {/* Outer Vessel Shell Boundary (Solid black line matching Image) */}
           <circle
             cx={center}
             cy={center}
             r={outerRadius}
             fill="none"
             stroke="#0f172a"
-            strokeWidth="2.5"
+            strokeWidth="3.5"
           />
 
-          {/* Inner Vessel Shell Boundary (Solid black line matching Image 2) */}
+          {/* Inner Vessel Shell Boundary (Solid green wall matching Image) */}
           <circle
             cx={center}
             cy={center}
             r={innerRadius}
             fill="none"
-            stroke="#0f172a"
-            strokeWidth="2.5"
+            stroke="#15803d"
+            strokeWidth="7"
           />
 
-          {/* Annular Wall Region Background with subtle radial guideline */}
+          {/* Annular Wall Region Guideline */}
           <circle
             cx={center}
             cy={center}
@@ -208,49 +291,167 @@ export function PolarCircumferentialRingMap({
             strokeDasharray="2 2"
           />
 
-          {/* Segment Tick Marks & Numerical Badges around the Circumference */}
-          {segmentTicks.map((tick) => {
-            const { angleRad } = mmToAngle(tick.mm);
-            const xInner = center + (outerRadius) * Math.cos(angleRad);
-            const yInner = center + (outerRadius) * Math.sin(angleRad);
-            const xOuter = center + (outerRadius + 12) * Math.cos(angleRad);
-            const yOuter = center + (outerRadius + 12) * Math.sin(angleRad);
-            const xText = center + (outerRadius + 24) * Math.cos(angleRad);
-            const yText = center + (outerRadius + 24) * Math.sin(angleRad);
+          {/* 28 Longitudinal Slot Dividers & Inner L1-L28 Slot Badges */}
+          {slots.map((s) => (
+            <g key={s.label}>
+              {/* Slot divider line */}
+              <line
+                x1={s.tick.tickX1}
+                y1={s.tick.tickY1}
+                x2={s.tick.tickX2}
+                y2={s.tick.tickY2}
+                stroke="#0f172a"
+                strokeWidth={s.slotNum === 1 ? "2.5" : "1.5"}
+              />
 
-            return (
-              <g key={tick.label}>
-                {/* Radial tick line */}
-                <line
-                  x1={xInner}
-                  y1={yInner}
-                  x2={xOuter}
-                  y2={yOuter}
-                  stroke="#475569"
-                  strokeWidth="1.5"
-                />
-                {/* Number label matching Image 2 font style */}
-                <text
-                  x={xText}
-                  y={yText + 3.5}
-                  textAnchor="middle"
-                  fontSize="11"
-                  fontFamily="sans-serif"
-                  fontWeight="600"
-                  fill="#1e293b"
-                >
-                  {tick.label}
-                </text>
-              </g>
-            );
-          })}
+              {/* Slot label inside inner circumference */}
+              <text
+                x={s.labelPos.x}
+                y={s.labelPos.y + 4}
+                textAnchor="middle"
+                fontSize={s.label === "L1" || s.label === "L28" ? "12" : "10"}
+                fontFamily="sans-serif"
+                fontWeight={s.label === "L1" || s.label === "L28" ? "800" : "700"}
+                fill={hoverPolar?.currentSlot === s.label ? "#0284c7" : "#0f172a"}
+              >
+                {s.label}
+              </text>
+            </g>
+          ))}
 
-          {/* Center Vessel Label */}
+          {/* Cardinal Directions Matching User Diagram Exactly:
+              North 0° at Top
+              90° at Left (West)
+              180° at Bottom (South)
+              270° at Right (East)
+          */}
+          {/* North 0° */}
+          <g>
+            <text
+              x={center}
+              y={center - cardinalRadius - 12}
+              textAnchor="middle"
+              fontSize="13"
+              fontFamily="sans-serif"
+              fontWeight="900"
+              fill="#0f172a"
+            >
+              NORTH
+            </text>
+            <text
+              x={center}
+              y={center - cardinalRadius + 2}
+              textAnchor="middle"
+              fontSize="13"
+              fontFamily="sans-serif"
+              fontWeight="900"
+              fill="#0f172a"
+            >
+              0°
+            </text>
+          </g>
+
+          {/* 90° at Left (West / 9 o'clock) */}
+          <text
+            x={center - cardinalRadius - 10}
+            y={center + 5}
+            textAnchor="end"
+            fontSize="13"
+            fontFamily="sans-serif"
+            fontWeight="900"
+            fill="#0f172a"
+          >
+            90°
+          </text>
+
+          {/* 180° at Bottom (South / 6 o'clock) */}
           <text
             x={center}
-            y={center - 6}
+            y={center + cardinalRadius + 14}
             textAnchor="middle"
-            fontSize="12"
+            fontSize="13"
+            fontFamily="sans-serif"
+            fontWeight="900"
+            fill="#0f172a"
+          >
+            180°
+          </text>
+
+          {/* 270° at Right (East / 3 o'clock) */}
+          <text
+            x={center + cardinalRadius + 10}
+            y={center + 5}
+            textAnchor="start"
+            fontSize="13"
+            fontFamily="sans-serif"
+            fontWeight="900"
+            fill="#0f172a"
+          >
+            270°
+          </text>
+
+          {/* Scanned Direction Curved Arrow in North-West Quadrant */}
+          <g className="scanned-direction-indicator">
+            <defs>
+              <marker
+                id="anticlockwise-arrow"
+                markerWidth="7"
+                markerHeight="7"
+                refX="5"
+                refY="3.5"
+                orient="auto"
+              >
+                <polygon points="0 0, 7 3.5, 0 7" fill="#0f172a" />
+              </marker>
+            </defs>
+
+            {/* Curved arrow path from ~350° to ~30° anticlockwise */}
+            {(() => {
+              const arrowRadius = outerRadius + 24;
+              const startA = degToAngleRad(352);
+              const endA = degToAngleRad(38);
+              const pathD = describeAnticlockwiseArc(center, center, arrowRadius, startA, endA);
+              return (
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke="#0f172a"
+                  strokeWidth="2"
+                  markerEnd="url(#anticlockwise-arrow)"
+                />
+              );
+            })()}
+
+            <text
+              x={center - 90}
+              y={center - outerRadius - 38}
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#0f172a"
+            >
+              Scanned
+            </text>
+            <text
+              x={center - 90}
+              y={center - outerRadius - 22}
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#0f172a"
+            >
+              Direction
+            </text>
+          </g>
+
+          {/* Center Vessel Designation */}
+          <text
+            x={center}
+            y={center - 8}
+            textAnchor="middle"
+            fontSize="13"
             fontWeight="bold"
             fill="#334155"
           >
@@ -260,30 +461,39 @@ export function PolarCircumferentialRingMap({
             x={center}
             y={center + 12}
             textAnchor="middle"
-            fontSize="10"
+            fontSize="11"
+            fontWeight="600"
             fill="#64748b"
           >
-            {weldName} (28.2m)
+            {weldName}
+          </text>
+          <text
+            x={center}
+            y={center + 28}
+            textAnchor="middle"
+            fontSize="10"
+            fill="#94a3b8"
+          >
+            {totalCircumferenceMm ? `${(totalCircumferenceMm / 1000).toFixed(1)} m Perimeter` : ""}
           </text>
 
-          {/* Render Indication Defect Arcs along the Annular Ring */}
+          {/* Render Indication Defect Arcs along the Annular Ring in Anticlockwise Direction */}
           {indications.map((pi) => {
             const startMm = pi.circumferentialPosition;
-            const endMm = startMm + Math.max(80, pi.latestLength || 300);
+            const flawLen = Math.max(120, pi.latestLength || 350);
+            const endMm = startMm + flawLen;
 
             const { angleRad: startRad } = mmToAngle(startMm);
-            let { angleRad: endRad } = mmToAngle(endMm);
-            if (endRad <= startRad) endRad += 2 * Math.PI;
+            const { angleRad: endRad } = mmToAngle(endMm);
 
             const isSelected = selectedFlawCode === pi.code;
+            const arcColor = getFlawDepthColor(pi.latestDepth || 2.5);
 
-            // Arc colors matching Image 2 reference: bright green, blue, red
-            let arcColor = "#16a34a"; // Green
-            if (pi.latestDepth > 3.0 || pi.code.includes("000002")) arcColor = "#2563eb"; // Blue
-            if (pi.growthDelta > 300 || pi.latestLength > 1500) arcColor = "#dc2626"; // Red
+            // Flaw stroke width: slightly wider than the outer black boundary
+            const strokeW = Math.max(6, Math.min(11, (pi.latestDepth || 2) * 1.6 + 4));
 
-            const strokeW = Math.max(3.5, Math.min(8, (pi.latestDepth || 2) * 1.6));
-            const arcPath = describeArc(center, center, midRadius, startRad, endRad);
+            // Describe anticlockwise arc
+            const arcPath = describeAnticlockwiseArc(center, center, outerRadius, startRad, endRad);
 
             return (
               <g
@@ -291,7 +501,7 @@ export function PolarCircumferentialRingMap({
                 onClick={() => onSelectFlaw?.(pi)}
                 className="cursor-pointer group"
               >
-                {/* Defect Arc */}
+                {/* Defect Arc on Outer Ring */}
                 <path
                   d={arcPath}
                   fill="none"
@@ -307,8 +517,8 @@ export function PolarCircumferentialRingMap({
                     d={arcPath}
                     fill="none"
                     stroke="#38bdf8"
-                    strokeWidth={strokeW + 7}
-                    strokeOpacity="0.4"
+                    strokeWidth={strokeW + 8}
+                    strokeOpacity="0.45"
                     strokeLinecap="round"
                   />
                 )}
@@ -321,7 +531,7 @@ export function PolarCircumferentialRingMap({
             <g className="floating-polar-cursor pointer-events-none">
               {/* Radial Laser Line pointing from center outwards */}
               {(() => {
-                const rad = (hoverPolar.angleDeg / 360) * 2 * Math.PI - Math.PI / 2;
+                const rad = degToAngleRad(hoverPolar.angleDeg);
                 const endX = center + (outerRadius + 14) * Math.cos(rad);
                 const endY = center + (outerRadius + 14) * Math.sin(rad);
                 return (
@@ -331,7 +541,7 @@ export function PolarCircumferentialRingMap({
                     x2={endX}
                     y2={endY}
                     stroke="#0284c7"
-                    strokeWidth="1.2"
+                    strokeWidth="1.5"
                     strokeDasharray="3 3"
                   />
                 );
@@ -341,44 +551,44 @@ export function PolarCircumferentialRingMap({
               <circle
                 cx={hoverPolar.xPx}
                 cy={hoverPolar.yPx}
-                r="6"
+                r="7"
                 fill="none"
                 stroke="#0284c7"
-                strokeWidth="1.75"
+                strokeWidth="2"
               />
               <circle
                 cx={hoverPolar.xPx}
                 cy={hoverPolar.yPx}
-                r="1.5"
+                r="1.75"
                 fill="#0284c7"
               />
             </g>
           )}
         </svg>
 
-        {/* Docked Inspector HUD Card — Always stays in opposite corner away from the cursor */}
+        {/* Docked Inspector HUD Card — Stays in opposite corner away from the cursor */}
         {hoverPolar && (
           <div
             className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
               hoverPolar.xPx > center ? "left-3 top-3" : "right-3 top-3"
             }`}
             style={{
-              minWidth: "220px",
+              minWidth: "230px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
               <span className="font-bold text-slate-900">
                 {hoverPolar.hoveredFlaw ? hoverPolar.hoveredFlaw.code : "Vessel Perimeter"}
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-100 text-sky-800">
-                {hoverPolar.percentCircumference}% of 360°
+              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-sky-100 text-sky-800">
+                Slot {hoverPolar.currentSlot}
               </span>
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between">
                 <span className="text-slate-500">Angle (θ):</span>
-                <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}°</span>
+                <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}° (Anticlockwise)</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Circumferential Pos:</span>
@@ -386,16 +596,26 @@ export function PolarCircumferentialRingMap({
                   {hoverPolar.positionMeters} m ({hoverPolar.positionMm} mm)
                 </span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Perimeter %:</span>
+                <span className="font-mono font-bold text-sky-700">{hoverPolar.percentCircumference}% of 360°</span>
+              </div>
 
               {hoverPolar.hoveredFlaw && (
                 <>
-                  <div className="pt-1 border-t border-slate-100 flex justify-between">
+                  <div className="pt-1.5 border-t border-slate-100 flex justify-between">
                     <span className="text-slate-500">Flaw Span:</span>
                     <span className="font-bold text-slate-900">{hoverPolar.hoveredFlaw.latestLength} mm</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-slate-500">Through-Wall Depth:</span>
-                    <span className="font-bold text-sky-700">{hoverPolar.hoveredFlaw.latestDepth} mm</span>
+                    <span className="font-bold flex items-center gap-1">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full inline-block"
+                        style={{ backgroundColor: getFlawDepthColor(hoverPolar.hoveredFlaw.latestDepth) }}
+                      />
+                      <span>{hoverPolar.hoveredFlaw.latestDepth} mm</span>
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Growth Rate:</span>
@@ -408,24 +628,42 @@ export function PolarCircumferentialRingMap({
         )}
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center justify-between text-xs text-slate-600 pt-1 border-t border-slate-100">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-1 bg-green-600 rounded-full inline-block"></span>
-            <span>Circumferential Flaw</span>
+      {/* Severity Color Legend Matching Reference Drawing Exactly */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-700 pt-2 border-t border-slate-200">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-bold text-slate-900">Depth Legend:</span>
+
+          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+            <span className="w-3.5 h-3.5 bg-green-600 rounded-xs inline-block"></span>
+            <span className="font-medium">No crack</span>
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-1 bg-blue-600 rounded-full inline-block"></span>
-            <span>Root Indication</span>
+
+          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+            <span className="w-3.5 h-3.5 bg-yellow-500 rounded-xs inline-block"></span>
+            <span className="font-medium">0.5 to 3mm</span>
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-1 bg-red-600 rounded-full inline-block"></span>
-            <span>Severe Segment</span>
+
+          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+            <span className="w-3.5 h-3.5 bg-orange-500 rounded-xs inline-block"></span>
+            <span className="font-medium">3.1 to 6mm</span>
+          </span>
+
+          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+            <span className="w-3.5 h-3.5 bg-red-600 rounded-xs inline-block"></span>
+            <span className="font-medium">6.1 to 10mm</span>
+          </span>
+
+          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+            <span className="w-3.5 h-3.5 bg-red-900 rounded-xs inline-block"></span>
+            <span className="font-medium">above 10mm</span>
           </span>
         </div>
-        <span className="text-slate-400 italic text-[11px]">Hover over perimeter to inspect angle and position</span>
+
+        <span className="text-slate-500 italic text-[11px]">
+          Hover perimeter to track <strong>L1–L28</strong> slots &amp; anticlockwise position
+        </span>
       </div>
     </div>
   );
 }
+
