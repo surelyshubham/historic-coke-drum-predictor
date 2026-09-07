@@ -702,6 +702,7 @@ export default function ReportsPage() {
                 drumName={vesselInfo.name}
                 weldName={activeWeldName}
                 totalCircumferenceMm={Math.round(circumferenceM * 1000)}
+                nominalWallThickness={vesselInfo.nominalThickness}
               />
             </div>
           </div>

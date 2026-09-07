@@ -10,6 +10,7 @@ interface PolarCircumferentialRingMapProps {
   drumName?: string;
   weldName?: string;
   totalCircumferenceMm?: number; // default ~28180 mm (28.2m)
+  nominalWallThickness?: number; // default 32.0 mm
 }
 
 export function PolarCircumferentialRingMap({
@@ -19,6 +20,7 @@ export function PolarCircumferentialRingMap({
   drumName = "Coke Drum",
   weldName = "Weld Seam",
   totalCircumferenceMm = 28180,
+  nominalWallThickness = 32.0,
 }: PolarCircumferentialRingMapProps) {
   const [hoverPolar, setHoverPolar] = useState<{
     xPx: number;
@@ -36,8 +38,9 @@ export function PolarCircumferentialRingMap({
   // SVG Geometry
   const size = 620;
   const center = size / 2;
-  const outerRadius = 230;
-  const innerRadius = 188;
+  const outerRadius = 230; // OD surface (black boundary)
+  const innerRadius = 188; // ID surface (green boundary)
+  const wallThicknessPx = outerRadius - innerRadius; // 42 px = nominalWallThickness (32.0 mm)
   const midRadius = (outerRadius + innerRadius) / 2;
   const slotLabelRadius = 168; // Inside the inner circle
 
@@ -81,9 +84,39 @@ export function PolarCircumferentialRingMap({
     // sweep-flag = 0 gives counter-clockwise (anticlockwise) arc!
     let diff = startAngleRad - endAngleRad;
     while (diff < 0) diff += 2 * Math.PI;
+    while (diff >= 2 * Math.PI) diff -= 2 * Math.PI;
     const largeArcFlag = diff > Math.PI ? "1" : "0";
 
     return `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${endX} ${endY}`;
+  };
+
+  // Helper to create closed annular sector patch representing depth-proportional wall penetration
+  const describeAnnularSector = (
+    cx: number,
+    cy: number,
+    rInner: number,
+    rOuter: number,
+    startAngleRad: number,
+    endAngleRad: number
+  ) => {
+    // Outer arc start and end (anticlockwise)
+    const x0 = cx + rOuter * Math.cos(startAngleRad);
+    const y0 = cy + rOuter * Math.sin(startAngleRad);
+    const x1 = cx + rOuter * Math.cos(endAngleRad);
+    const y1 = cy + rOuter * Math.sin(endAngleRad);
+
+    // Inner arc end and start (clockwise return path)
+    const x2 = cx + rInner * Math.cos(endAngleRad);
+    const y2 = cy + rInner * Math.sin(endAngleRad);
+    const x3 = cx + rInner * Math.cos(startAngleRad);
+    const y3 = cy + rInner * Math.sin(startAngleRad);
+
+    let diff = startAngleRad - endAngleRad;
+    while (diff < 0) diff += 2 * Math.PI;
+    while (diff >= 2 * Math.PI) diff -= 2 * Math.PI;
+    const largeArcFlag = diff > Math.PI ? "1" : "0";
+
+    return `M ${x0} ${y0} A ${rOuter} ${rOuter} 0 ${largeArcFlag} 0 ${x1} ${y1} L ${x2} ${y2} A ${rInner} ${rInner} 0 ${largeArcFlag} 1 ${x3} ${y3} Z`;
   };
 
   // 28 Slots generated consecutively anticlockwise starting from North 0°
@@ -164,11 +197,17 @@ export function PolarCircumferentialRingMap({
     for (const pi of indications) {
       const start = pi.circumferentialPosition;
       const end = start + Math.max(100, pi.latestLength || 500);
+      const isOd = (pi.weldPosition || "").toUpperCase().includes("OD");
+      const depthRatio = Math.min(1, Math.max(0.06, (pi.latestDepth || 2.5) / nominalWallThickness));
+      const penetrationPx = Math.max(4, depthRatio * wallThicknessPx);
+      const rInner = isOd ? outerRadius - penetrationPx : innerRadius;
+      const rOuter = isOd ? outerRadius : innerRadius + penetrationPx;
+
       if (
         positionMm >= start &&
         positionMm <= end &&
-        distFromCenter >= innerRadius - 20 &&
-        distFromCenter <= outerRadius + 20
+        distFromCenter >= rInner - 8 &&
+        distFromCenter <= rOuter + 8
       ) {
         hoveredFlaw = pi;
         break;
@@ -206,7 +245,7 @@ export function PolarCircumferentialRingMap({
             </span>
           </h3>
           <p className="text-[11px] text-slate-500">
-            Coke Drum <strong>{drumName}</strong> ({weldName}) with 28 longitudinal slots (L1–L28) and depth-tiered indication arcs
+            Coke Drum <strong>{drumName}</strong> ({weldName}) with 28 longitudinal slots (L1–L28) and depth-proportional indications on {nominalWallThickness.toFixed(1)} mm wall
           </p>
         </div>
 
@@ -238,7 +277,9 @@ export function PolarCircumferentialRingMap({
                   <span className="text-slate-300">|</span>
                   <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
                     <span>🎯 {hoverPolar.hoveredFlaw.code}</span>
-                    <span className="font-mono text-[11px]">({hoverPolar.hoveredFlaw.latestLength}mm)</span>
+                    <span className="font-mono text-[11px]">
+                      ({hoverPolar.hoveredFlaw.latestDepth}mm / {((hoverPolar.hoveredFlaw.latestDepth / nominalWallThickness) * 100).toFixed(0)}% wall)
+                    </span>
                   </div>
                 </>
               )}
@@ -260,7 +301,7 @@ export function PolarCircumferentialRingMap({
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
-          {/* Outer Vessel Shell Boundary (Solid black line matching Image) */}
+          {/* Outer Vessel Shell Boundary (Solid black line matching Image - OD Surface) */}
           <circle
             cx={center}
             cy={center}
@@ -270,14 +311,14 @@ export function PolarCircumferentialRingMap({
             strokeWidth="3.5"
           />
 
-          {/* Inner Vessel Shell Boundary (Solid green wall matching Image) */}
+          {/* Inner Vessel Shell Boundary (Solid green wall matching Image - ID Surface) */}
           <circle
             cx={center}
             cy={center}
             r={innerRadius}
             fill="none"
             stroke="#15803d"
-            strokeWidth="7"
+            strokeWidth="6"
           />
 
           {/* Annular Wall Region Guideline */}
@@ -477,7 +518,7 @@ export function PolarCircumferentialRingMap({
             {totalCircumferenceMm ? `${(totalCircumferenceMm / 1000).toFixed(1)} m Perimeter` : ""}
           </text>
 
-          {/* Render Indication Defect Arcs along the Annular Ring in Anticlockwise Direction */}
+          {/* Render Indication Defect Patches Proportionally Depth-Wise along the Annular Ring */}
           {indications.map((pi) => {
             const startMm = pi.circumferentialPosition;
             const flawLen = Math.max(120, pi.latestLength || 350);
@@ -487,13 +528,22 @@ export function PolarCircumferentialRingMap({
             const { angleRad: endRad } = mmToAngle(endMm);
 
             const isSelected = selectedFlawCode === pi.code;
-            const arcColor = getFlawDepthColor(pi.latestDepth || 2.5);
+            const flawDepth = Math.max(0.5, pi.latestDepth || 2.5);
+            const arcColor = getFlawDepthColor(flawDepth);
 
-            // Flaw stroke width: slightly wider than the outer black boundary
-            const strokeW = Math.max(6, Math.min(11, (pi.latestDepth || 2) * 1.6 + 4));
+            const isOd = (pi.weldPosition || "").toUpperCase().includes("OD");
+            // Proportion of nominal wall thickness
+            const depthRatio = Math.min(1, Math.max(0.06, flawDepth / nominalWallThickness));
+            const penetrationPx = Math.max(4, depthRatio * wallThicknessPx);
 
-            // Describe anticlockwise arc
-            const arcPath = describeAnticlockwiseArc(center, center, outerRadius, startRad, endRad);
+            // Annular sector radial boundaries:
+            // OD initiated: penetrates from outerRadius inward
+            // ID initiated: penetrates from innerRadius outward
+            const rOuterPatch = isOd ? outerRadius : innerRadius + penetrationPx;
+            const rInnerPatch = isOd ? outerRadius - penetrationPx : innerRadius;
+
+            // Closed annular polygon patch
+            const sectorPath = describeAnnularSector(center, center, rInnerPatch, rOuterPatch, startRad, endRad);
 
             return (
               <g
@@ -501,25 +551,24 @@ export function PolarCircumferentialRingMap({
                 onClick={() => onSelectFlaw?.(pi)}
                 className="cursor-pointer group"
               >
-                {/* Defect Arc on Outer Ring */}
+                {/* Depth-Proportional Annular Sector Patch */}
                 <path
-                  d={arcPath}
-                  fill="none"
-                  stroke={arcColor}
-                  strokeWidth={isSelected ? strokeW + 4 : strokeW}
-                  strokeLinecap="round"
-                  className="transition-all hover:opacity-90"
+                  d={sectorPath}
+                  fill={arcColor}
+                  fillOpacity="0.88"
+                  stroke={isSelected ? "#0284c7" : "#0f172a"}
+                  strokeWidth={isSelected ? 2.5 : 1}
+                  className="transition-all hover:fill-opacity-100 hover:brightness-105"
                 />
 
                 {/* Glow ring if selected */}
                 {isSelected && (
                   <path
-                    d={arcPath}
+                    d={sectorPath}
                     fill="none"
                     stroke="#38bdf8"
-                    strokeWidth={strokeW + 8}
-                    strokeOpacity="0.45"
-                    strokeLinecap="round"
+                    strokeWidth="3.5"
+                    strokeOpacity="0.85"
                   />
                 )}
               </g>
@@ -573,7 +622,7 @@ export function PolarCircumferentialRingMap({
               hoverPolar.xPx > center ? "left-3 top-3" : "right-3 top-3"
             }`}
             style={{
-              minWidth: "230px",
+              minWidth: "240px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
@@ -604,7 +653,7 @@ export function PolarCircumferentialRingMap({
               {hoverPolar.hoveredFlaw && (
                 <>
                   <div className="pt-1.5 border-t border-slate-100 flex justify-between">
-                    <span className="text-slate-500">Flaw Span:</span>
+                    <span className="text-slate-500">Flaw Length:</span>
                     <span className="font-bold text-slate-900">{hoverPolar.hoveredFlaw.latestLength} mm</span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -614,13 +663,32 @@ export function PolarCircumferentialRingMap({
                         className="w-2.5 h-2.5 rounded-full inline-block"
                         style={{ backgroundColor: getFlawDepthColor(hoverPolar.hoveredFlaw.latestDepth) }}
                       />
-                      <span>{hoverPolar.hoveredFlaw.latestDepth} mm</span>
+                      <span>
+                        {hoverPolar.hoveredFlaw.latestDepth} mm (
+                        {((hoverPolar.hoveredFlaw.latestDepth / nominalWallThickness) * 100).toFixed(1)}% of wall)
+                      </span>
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Growth Rate:</span>
-                    <span className="font-bold text-amber-600">+{hoverPolar.hoveredFlaw.growthRateYear} mm/yr</span>
+                    <span className="text-slate-500">Initiation Surface:</span>
+                    <span className="font-semibold text-slate-700">
+                      {(hoverPolar.hoveredFlaw.weldPosition || "").toUpperCase().includes("OD")
+                        ? "OD Surface (Outside)"
+                        : "ID Surface (Inside)"}
+                    </span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Remaining Sound Wall:</span>
+                    <span className="font-mono font-bold text-emerald-700">
+                      {Math.max(0, nominalWallThickness - hoverPolar.hoveredFlaw.latestDepth).toFixed(1)} mm
+                    </span>
+                  </div>
+                  {hoverPolar.hoveredFlaw.growthRateYear > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Growth Rate:</span>
+                      <span className="font-bold text-amber-600">+{hoverPolar.hoveredFlaw.growthRateYear} mm/yr</span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
