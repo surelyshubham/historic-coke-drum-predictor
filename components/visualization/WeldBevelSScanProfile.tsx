@@ -584,34 +584,63 @@ export function WeldBevelSScanProfile({
                 fill="#991b1b"
               />
 
-              {/* ID Crack Depth Callout Annotation — Upright with clean border */}
-              <g
-                transform={`translate(${Math.max(plateLeft + 10, Math.min(plateRight - 150, idCrackPath.tipX - 70))}, ${Math.max(plateTop + 14, idCrackPath.tipY - 28)})`}
-              >
-                <rect
-                  x="0"
-                  y="0"
-                  width="142"
-                  height="22"
-                  rx="4"
-                  fill="#ffffff"
-                  fillOpacity="0.95"
-                  stroke="#e2e8f0"
-                  strokeWidth="1"
-                  className="shadow-xs"
-                />
-                <text
-                  x="71"
-                  y="15"
-                  textAnchor="middle"
-                  fontSize="10"
-                  fontWeight="bold"
-                  fontFamily="sans-serif"
-                  fill="#dc2626"
-                >
-                  ID Depth: {idCrackPath.depthMm.toFixed(1)} mm ({((idCrackPath.depthMm / nominalWallThickness) * 100).toFixed(0)}%)
-                </text>
-              </g>
+              {/* ID Crack Depth Callout Annotation — Positioned into clear base metal with leader line so it never blocks the crack or bevel */}
+              {(() => {
+                const boxW = 142;
+                const boxH = 22;
+                const isLeft = idCrackPath.tipX <= weldCenterX;
+                const boxX = isLeft
+                  ? Math.max(plateLeft + 10, idCrackPath.tipX - boxW - 24)
+                  : Math.min(plateRight - boxW - 10, idCrackPath.tipX + 24);
+                const boxY = Math.max(plateTop + 8, Math.min(plateBottom - boxH - 8, idCrackPath.tipY - boxH / 2));
+                const leaderStartX = isLeft ? boxX + boxW : boxX;
+                const leaderStartY = boxY + boxH / 2;
+                const leaderEndX = isLeft ? idCrackPath.tipX - 14 : idCrackPath.tipX + 14;
+                const leaderEndY = idCrackPath.tipY;
+
+                return (
+                  <g className="id-crack-callout">
+                    {/* Leader pointer line connecting callout to crack tip */}
+                    <line
+                      x1={leaderStartX}
+                      y1={leaderStartY}
+                      x2={leaderEndX}
+                      y2={leaderEndY}
+                      stroke="#dc2626"
+                      strokeWidth="1.2"
+                      strokeDasharray="2 2"
+                    />
+                    <circle cx={leaderEndX} cy={leaderEndY} r="2" fill="#dc2626" />
+
+                    {/* Non-blocking callout badge */}
+                    <g transform={`translate(${boxX}, ${boxY})`}>
+                      <rect
+                        x="0"
+                        y="0"
+                        width={boxW}
+                        height={boxH}
+                        rx="4"
+                        fill="#ffffff"
+                        fillOpacity="0.95"
+                        stroke="#dc2626"
+                        strokeWidth="1"
+                        className="shadow-xs"
+                      />
+                      <text
+                        x={boxW / 2}
+                        y="15"
+                        textAnchor="middle"
+                        fontSize="10"
+                        fontWeight="bold"
+                        fontFamily="sans-serif"
+                        fill="#dc2626"
+                      >
+                        ID Depth: {idCrackPath.depthMm.toFixed(1)} mm ({((idCrackPath.depthMm / nominalWallThickness) * 100).toFixed(0)}%)
+                      </text>
+                    </g>
+                  </g>
+                );
+              })()}
             </g>
           )}
 
@@ -658,34 +687,63 @@ export function WeldBevelSScanProfile({
                 fill="#9a3412"
               />
 
-              {/* OD Crack Depth Callout Annotation — Upright with clean border */}
-              <g
-                transform={`translate(${Math.max(plateLeft + 10, Math.min(plateRight - 150, odCrackPath.tipX - 70))}, ${Math.min(plateBottom - 32, odCrackPath.tipY + 12)})`}
-              >
-                <rect
-                  x="0"
-                  y="0"
-                  width="142"
-                  height="22"
-                  rx="4"
-                  fill="#ffffff"
-                  fillOpacity="0.95"
-                  stroke="#e2e8f0"
-                  strokeWidth="1"
-                  className="shadow-xs"
-                />
-                <text
-                  x="71"
-                  y="15"
-                  textAnchor="middle"
-                  fontSize="10"
-                  fontWeight="bold"
-                  fontFamily="sans-serif"
-                  fill="#ea580c"
-                >
-                  OD Depth: {odCrackPath.depthMm.toFixed(1)} mm ({((odCrackPath.depthMm / nominalWallThickness) * 100).toFixed(0)}%)
-                </text>
-              </g>
+              {/* OD Crack Depth Callout Annotation — Positioned into clear base metal with leader line so it never blocks the crack or bevel */}
+              {(() => {
+                const boxW = 142;
+                const boxH = 22;
+                const isLeft = odCrackPath.tipX <= weldCenterX;
+                const boxX = isLeft
+                  ? Math.max(plateLeft + 10, odCrackPath.tipX - boxW - 24)
+                  : Math.min(plateRight - boxW - 10, odCrackPath.tipX + 24);
+                const boxY = Math.max(plateTop + 8, Math.min(plateBottom - boxH - 8, odCrackPath.tipY - boxH / 2));
+                const leaderStartX = isLeft ? boxX + boxW : boxX;
+                const leaderStartY = boxY + boxH / 2;
+                const leaderEndX = isLeft ? odCrackPath.tipX - 14 : odCrackPath.tipX + 14;
+                const leaderEndY = odCrackPath.tipY;
+
+                return (
+                  <g className="od-crack-callout">
+                    {/* Leader pointer line connecting callout to crack tip */}
+                    <line
+                      x1={leaderStartX}
+                      y1={leaderStartY}
+                      x2={leaderEndX}
+                      y2={leaderEndY}
+                      stroke="#ea580c"
+                      strokeWidth="1.2"
+                      strokeDasharray="2 2"
+                    />
+                    <circle cx={leaderEndX} cy={leaderEndY} r="2" fill="#ea580c" />
+
+                    {/* Non-blocking callout badge */}
+                    <g transform={`translate(${boxX}, ${boxY})`}>
+                      <rect
+                        x="0"
+                        y="0"
+                        width={boxW}
+                        height={boxH}
+                        rx="4"
+                        fill="#ffffff"
+                        fillOpacity="0.95"
+                        stroke="#ea580c"
+                        strokeWidth="1"
+                        className="shadow-xs"
+                      />
+                      <text
+                        x={boxW / 2}
+                        y="15"
+                        textAnchor="middle"
+                        fontSize="10"
+                        fontWeight="bold"
+                        fontFamily="sans-serif"
+                        fill="#ea580c"
+                      >
+                        OD Depth: {odCrackPath.depthMm.toFixed(1)} mm ({((odCrackPath.depthMm / nominalWallThickness) * 100).toFixed(0)}%)
+                      </text>
+                    </g>
+                  </g>
+                );
+              })()}
             </g>
           )}
 
