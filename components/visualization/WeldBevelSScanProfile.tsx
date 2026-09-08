@@ -28,58 +28,59 @@ export function WeldBevelSScanProfile({
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // SVG Geometry for Tall Vertical Through-Thickness Slice
-  // Matches authentic engineering reference drawing (media_1788721266007.png)
-  const width = 460;
-  const height = 640;
+  // SVG Geometry for Horizontal Through-Thickness Slice
+  // Matches client's horizontal reference screenshot (media_1788857393727.png)
+  const width = 740;
+  const height = 360;
 
-  // Tall vertical plate slice representing vessel shell wall
-  const plateWidth = 170; // Represents nominalWallThickness (user configured)
-  const plateHeight = 500; // Represents shell height (-55 mm to +55 mm)
-  const plateLeft = (width - plateWidth) / 2; // 145 px
-  const plateRight = plateLeft + plateWidth; // 315 px
-  const plateTop = 50;
-  const plateBottom = plateTop + plateHeight; // 550 px
-  const weldCenterY = (plateTop + plateBottom) / 2; // 300 px (0 mm centerline)
+  // Horizontal plate representing vessel shell wall cross-section
+  // Top horizontal edge is OD (External surface)
+  // Bottom horizontal edge is ID (Internal surface)
+  // Height represents nominalWallThickness (user configured)
+  // Width represents shell weld width span (-55 mm to +55 mm)
+  const plateLeft = 55;
+  const plateRight = 555;
+  const plateWidth = plateRight - plateLeft; // 500 px
+  const plateTop = 75; // OD Surface
+  const plateBottom = 265; // ID Surface
+  const plateThicknessPx = plateBottom - plateTop; // 190 px
+  const weldCenterX = (plateLeft + plateRight) / 2; // 305 px (0 mm centerline)
 
   // Coordinate Mapping:
-  // Horizontal (X): 0 mm (ID) at plateLeft to nominalWallThickness (OD) at plateRight
-  // Vertical (Y): -55 mm (Bottom) at plateBottom to +55 mm (Top) at plateTop
-  const ySpanMm = 55.0; // Half-height span
+  // Horizontal (X): Offset from weld centerline (-55 mm at plateLeft to +55 mm at plateRight)
+  // Vertical (Y): Through-wall depth (plateBottom at 0 mm ID to plateTop at nominalWallThickness OD)
+  const xSpanMm = 55.0; // Half-width span (from centerline to edge)
 
-  const scaleX = (valMm: number) => {
-    return plateLeft + (valMm / nominalWallThickness) * plateWidth;
+  const scaleX = (offsetMm: number) => {
+    return weldCenterX + (offsetMm / xSpanMm) * (plateWidth / 2);
   };
 
-  const scaleY = (yMm: number) => {
-    // Invert Y so +yMm (Top) is upwards
-    return weldCenterY - (yMm / ySpanMm) * (plateHeight / 2);
+  const scaleYFromId = (depthFromIdMm: number) => {
+    return plateBottom - (depthFromIdMm / nominalWallThickness) * plateThicknessPx;
   };
 
   const invertX = (xPx: number) => {
-    return ((xPx - plateLeft) / plateWidth) * nominalWallThickness;
+    return ((xPx - weldCenterX) / (plateWidth / 2)) * xSpanMm;
   };
 
   const invertY = (yPx: number) => {
-    return ((weldCenterY - yPx) / (plateHeight / 2)) * ySpanMm;
+    return ((plateBottom - yPx) / plateThicknessPx) * nominalWallThickness;
   };
 
   // Double-V Bevel Geometry (dynamically scaled to nominal wall thickness):
-  // Root face at ~11.5 mm scaled proportionally
+  // Root face at ~11.5 mm from ID scaled proportionally
   const rootDepthMm = Number((11.5 * (nominalWallThickness / 32.0)).toFixed(1));
-  const rootX = scaleX(rootDepthMm);
+  const rootY = scaleYFromId(rootDepthMm);
 
-  // ID Side (Left): Narrower and shorter bevel
-  const idBevelTopYMm = 11.0;
-  const idBevelBottomYMm = -11.0;
-  const idTtY = scaleY(idBevelTopYMm);
-  const idBtY = scaleY(idBevelBottomYMm);
+  // ID Side (Bottom Edge): Narrower bevel (-11 mm to +11 mm)
+  const idBevelHalfWidthMm = 11.0;
+  const idTtX = scaleX(-idBevelHalfWidthMm);
+  const idBtX = scaleX(idBevelHalfWidthMm);
 
-  // OD Side (Right): Wider and taller bevel
-  const odBevelTopYMm = 22.0;
-  const odBevelBottomYMm = -22.0;
-  const odTtY = scaleY(odBevelTopYMm);
-  const odBtY = scaleY(odBevelBottomYMm);
+  // OD Side (Top Edge): Wider bevel (-22 mm to +22 mm)
+  const odBevelHalfWidthMm = 22.0;
+  const odTtX = scaleX(-odBevelHalfWidthMm);
+  const odBtX = scaleX(odBevelHalfWidthMm);
 
   // Dynamic Defect Parameters from Indication (Extracting both ID and OD measurements)
   const indAny = indication as unknown as Record<string, unknown>;
@@ -104,32 +105,33 @@ export function WeldBevelSScanProfile({
   const isTopToe = toeType === 'TT' || (indication.weldPosition || "").toUpperCase().includes("TT");
   const isBottomToe = toeType === 'BT' || (indication.weldPosition || "").toUpperCase().includes("BT");
 
-  // Dynamic Vertical Crack Origins based on actual parsed offsets from data
-  const idOriginY = offsetMm > 0
-    ? (isBottomToe ? scaleY(-offsetMm) : scaleY(offsetMm))
-    : (isBottomToe ? idBtY : idTtY);
+  // Dynamic Horizontal Crack Origins based on actual parsed offsets from data
+  // TT is on the left (-offset), BT is on the right (+offset)
+  const idOriginX = offsetMm > 0
+    ? (isBottomToe ? scaleX(offsetMm) : scaleX(-offsetMm))
+    : (isBottomToe ? idBtX : idTtX);
 
-  const odOriginY = offsetMm > 0
-    ? (isBottomToe ? scaleY(-offsetMm) : scaleY(offsetMm))
-    : (isBottomToe ? odBtY : odTtY);
+  const odOriginX = offsetMm > 0
+    ? (isBottomToe ? scaleX(offsetMm) : scaleX(-offsetMm))
+    : (isBottomToe ? odBtX : odTtX);
 
   const cladStatus = (indAny.cladStatus as string) || "INCLUDING";
 
-  // Generate ID Propagating Crack Curve (Penetrates from ID Left Edge towards OD)
+  // Generate ID Propagating Crack Curve (Penetrates from ID Bottom Surface UPWARDS towards OD)
   const idCrackPath = useMemo(() => {
     if (!hasIdCrack || depthIdMm === null) return null;
     const crackDepth = Math.max(1.0, Math.min(nominalWallThickness, depthIdMm));
-    const crackDepthPx = (crackDepth / nominalWallThickness) * plateWidth;
+    const crackDepthPx = (crackDepth / nominalWallThickness) * plateThicknessPx;
 
-    const startX = plateLeft;
-    const startY = idOriginY;
-    const endX = plateLeft + crackDepthPx;
-    const endY = startY + (isTopToe ? 6 : -6);
+    const startX = idOriginX;
+    const startY = plateBottom;
+    const endX = startX + (isBottomToe ? -6 : 6);
+    const endY = plateBottom - crackDepthPx;
 
-    const cp1X = startX + crackDepthPx * 0.35;
-    const cp1Y = startY - (isTopToe ? 5 : -5);
-    const cp2X = startX + crackDepthPx * 0.70;
-    const cp2Y = startY + (isTopToe ? 7 : -7);
+    const cp1X = startX + (isBottomToe ? -2 : 2);
+    const cp1Y = startY - crackDepthPx * 0.35;
+    const cp2X = startX + (isBottomToe ? -5 : 5);
+    const cp2Y = startY - crackDepthPx * 0.70;
 
     return {
       d: `M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY}`,
@@ -140,23 +142,23 @@ export function WeldBevelSScanProfile({
       depthMm: crackDepth,
       label: offsetMm > 0 ? `${offsetMm}mm ID ${isBottomToe ? 'BT' : 'TT'}` : `ID ${isBottomToe ? 'BT' : 'TT'}`,
     };
-  }, [hasIdCrack, depthIdMm, nominalWallThickness, plateLeft, plateWidth, idOriginY, isTopToe, isBottomToe, offsetMm]);
+  }, [hasIdCrack, depthIdMm, nominalWallThickness, plateThicknessPx, plateBottom, idOriginX, isBottomToe, offsetMm]);
 
-  // Generate OD Propagating Defect Curve (Penetrates from OD Right Edge towards ID)
+  // Generate OD Propagating Defect Curve (Penetrates from OD Top Surface DOWNWARDS towards ID)
   const odCrackPath = useMemo(() => {
     if (!hasOdCrack || depthOdMm === null) return null;
     const crackDepth = Math.max(1.0, Math.min(nominalWallThickness, depthOdMm));
-    const crackDepthPx = (crackDepth / nominalWallThickness) * plateWidth;
+    const crackDepthPx = (crackDepth / nominalWallThickness) * plateThicknessPx;
 
-    const startX = plateRight;
-    const startY = odOriginY;
-    const endX = plateRight - crackDepthPx;
-    const endY = startY + (isTopToe ? 6 : -6);
+    const startX = odOriginX;
+    const startY = plateTop;
+    const endX = startX + (isBottomToe ? -6 : 6);
+    const endY = plateTop + crackDepthPx;
 
-    const cp1X = startX - crackDepthPx * 0.35;
-    const cp1Y = startY - (isTopToe ? 5 : -5);
-    const cp2X = startX - crackDepthPx * 0.70;
-    const cp2Y = startY + (isTopToe ? 7 : -7);
+    const cp1X = startX + (isBottomToe ? -2 : 2);
+    const cp1Y = startY + crackDepthPx * 0.35;
+    const cp2X = startX + (isBottomToe ? -5 : 5);
+    const cp2Y = startY + crackDepthPx * 0.70;
 
     return {
       d: `M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY}`,
@@ -167,7 +169,7 @@ export function WeldBevelSScanProfile({
       depthMm: crackDepth,
       label: offsetMm > 0 ? `${offsetMm}mm OD ${isBottomToe ? 'BT' : 'TT'}` : `OD ${isBottomToe ? 'BT' : 'TT'}`,
     };
-  }, [hasOdCrack, depthOdMm, nominalWallThickness, plateRight, plateWidth, odOriginY, isTopToe, isBottomToe, offsetMm]);
+  }, [hasOdCrack, depthOdMm, nominalWallThickness, plateThicknessPx, plateTop, odOriginX, isBottomToe, offsetMm]);
 
   // Sound Ligament Calculation (Remaining uncracked wall)
   const totalFlawPenetration = (hasIdCrack ? (depthIdMm || 0) : 0) + (hasOdCrack ? (depthOdMm || 0) : 0);
@@ -180,8 +182,8 @@ export function WeldBevelSScanProfile({
     const yPx = e.clientY - rect.top;
 
     if (
-      xPx < plateLeft - 20 ||
-      xPx > plateRight + 20 ||
+      xPx < plateLeft ||
+      xPx > plateRight ||
       yPx < plateTop ||
       yPx > plateBottom
     ) {
@@ -189,25 +191,26 @@ export function WeldBevelSScanProfile({
       return;
     }
 
-    const depthFromIdMm = Number(Math.max(0, Math.min(nominalWallThickness, invertX(xPx))).toFixed(1));
+    const depthFromIdMm = Number(Math.max(0, Math.min(nominalWallThickness, invertY(yPx))).toFixed(1));
     const distanceFromOdMm = Number((nominalWallThickness - depthFromIdMm).toFixed(1));
-    const offsetFromCenterlineMm = Number(invertY(yPx).toFixed(1));
+    const offsetFromCenterlineMm = Number(invertX(xPx).toFixed(1));
     const percentOfWallThickness = Number(((depthFromIdMm / nominalWallThickness) * 100).toFixed(1));
 
     let zone = "Base Metal (SA-387)";
     if (depthFromIdMm <= 3.0) {
       zone = "Type 410S Stainless Clad";
-    } else if (depthFromIdMm <= rootDepthMm) {
-      if (Math.abs(offsetFromCenterlineMm) <= idBevelTopYMm * (1 - depthFromIdMm / rootDepthMm)) {
+    } else if (yPx >= rootY) {
+      const idFraction = (plateBottom - yPx) / (plateBottom - rootY);
+      if (Math.abs(offsetFromCenterlineMm) <= idBevelHalfWidthMm * (1 - idFraction * 0.7)) {
         zone = "ID Weld Metal";
-      } else if (Math.abs(offsetFromCenterlineMm) <= idBevelTopYMm * 1.35) {
+      } else if (Math.abs(offsetFromCenterlineMm) <= idBevelHalfWidthMm * 1.3) {
         zone = "ID Heat Affected Zone (HAZ)";
       }
     } else {
-      const odFraction = (depthFromIdMm - rootDepthMm) / (nominalWallThickness - rootDepthMm);
-      if (Math.abs(offsetFromCenterlineMm) <= odBevelTopYMm * odFraction) {
+      const odFraction = (rootY - yPx) / (rootY - plateTop);
+      if (Math.abs(offsetFromCenterlineMm) <= odBevelHalfWidthMm * (0.3 + odFraction * 0.7)) {
         zone = "OD Weld Metal";
-      } else if (Math.abs(offsetFromCenterlineMm) <= odBevelTopYMm * odFraction + 3.5) {
+      } else if (Math.abs(offsetFromCenterlineMm) <= odBevelHalfWidthMm * 1.25) {
         zone = "OD Heat Affected Zone (HAZ)";
       }
     }
@@ -247,7 +250,7 @@ export function WeldBevelSScanProfile({
             )}
           </div>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Through-thickness slice showing ID (left) &amp; OD (right) surfaces • Position: <strong>{indication.weldPosition || "Weld Toe"}</strong>
+            Through-thickness slice showing OD (top) &amp; ID (bottom) surfaces • Position: <strong>{indication.weldPosition || "Weld Toe"}</strong>
           </p>
         </div>
 
@@ -288,7 +291,7 @@ export function WeldBevelSScanProfile({
         <svg
           ref={svgRef}
           viewBox={`0 0 ${width} ${height}`}
-          className="w-full max-w-[460px] h-auto select-none cursor-crosshair overflow-visible"
+          className="w-full max-w-[720px] h-auto select-none cursor-crosshair overflow-visible"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
@@ -303,107 +306,107 @@ export function WeldBevelSScanProfile({
             </radialGradient>
           </defs>
 
-          {/* Vessel Shell Plate: Tall Vertical Rectangle matching reference drawing */}
+          {/* Vessel Shell Plate: Horizontal Rectangle matching reference drawing */}
           <rect
             x={plateLeft}
             y={plateTop}
             width={plateWidth}
-            height={plateHeight}
+            height={plateThicknessPx}
             fill="#ffffff"
             stroke="#0f172a"
-            strokeWidth="3.5"
+            strokeWidth="3.2"
           />
 
-          {/* Internal Stainless Steel Clad Layer (~3.0 mm on ID side) */}
+          {/* Internal Stainless Steel Clad Layer (~3.0 mm along ID Bottom Surface) */}
           <rect
             x={plateLeft}
-            y={plateTop}
-            width={(3.0 / nominalWallThickness) * plateWidth}
-            height={plateHeight}
+            y={plateBottom - (3.0 / nominalWallThickness) * plateThicknessPx}
+            width={plateWidth}
+            height={(3.0 / nominalWallThickness) * plateThicknessPx}
             fill="#38bdf8"
-            fillOpacity="0.10"
+            fillOpacity="0.12"
             stroke="#0284c7"
             strokeWidth="1"
-            strokeDasharray="2 2"
+            strokeDasharray="3 3"
           />
           <text
-            x={plateLeft + (1.5 / nominalWallThickness) * plateWidth}
-            y={plateTop + 22}
-            textAnchor="middle"
-            fontSize="8"
+            x={plateLeft + 16}
+            y={plateBottom - ((3.0 / nominalWallThickness) * plateThicknessPx) / 2 + 3.5}
+            textAnchor="start"
+            fontSize="9"
             fontWeight="bold"
             fill="#0284c7"
           >
-            CLAD
+            CLAD (1.5mm / 3.0mm)
           </text>
 
           {/* Asymmetric Double-V Weld Metal Fill (Grey Hourglass matching reference drawing) */}
-          {/* Left / ID Bevel Triangle: from ID (plateLeft) to Root (rootX) */}
+          {/* Top / OD Bevel Triangle: from OD (plateTop) to Root (rootY) */}
           <polygon
             points={`
-              ${plateLeft},${idTtY}
-              ${rootX},${weldCenterY - 3}
-              ${rootX},${weldCenterY + 3}
-              ${plateLeft},${idBtY}
+              ${odTtX},${plateTop}
+              ${odBtX},${plateTop}
+              ${weldCenterX + 3},${rootY}
+              ${weldCenterX - 3},${rootY}
             `}
             fill="#cbd5e1"
             stroke="#64748b"
             strokeWidth="1.2"
           />
 
-          {/* Right / OD Bevel Triangle: from Root (rootX) to OD (plateRight) */}
+          {/* Bottom / ID Bevel Triangle: from Root (rootY) to ID (plateBottom) */}
           <polygon
             points={`
-              ${rootX},${weldCenterY - 3}
-              ${plateRight},${odTtY}
-              ${plateRight},${odBtY}
-              ${rootX},${weldCenterY + 3}
+              ${idTtX},${plateBottom}
+              ${weldCenterX - 3},${rootY}
+              ${weldCenterX + 3},${rootY}
+              ${idBtX},${plateBottom}
             `}
             fill="#cbd5e1"
             stroke="#64748b"
             strokeWidth="1.2"
           />
 
-          {/* Root Face Vertical Line */}
+          {/* Root Face Horizontal Line */}
           <line
-            x1={rootX}
-            y1={weldCenterY - 3}
-            x2={rootX}
-            y2={weldCenterY + 3}
+            x1={weldCenterX - 3}
+            y1={rootY}
+            x2={weldCenterX + 3}
+            y2={rootY}
             stroke="#475569"
-            strokeWidth="1.5"
+            strokeWidth="2"
           />
 
-          {/* ID & OD Surface Boundary Headers (Top outside plate - cleanly spaced with zero superposition) */}
-          <g transform={`translate(${plateLeft}, ${plateTop - 18})`}>
-            <rect
-              x="-24"
-              y="-14"
-              width="48"
-              height="24"
-              rx="4"
-              fill="#f8fafc"
-              stroke="#cbd5e1"
-              strokeWidth="1"
-            />
-            <text
-              x="0"
-              y="2"
-              textAnchor="middle"
-              fontSize="12"
-              fontWeight="900"
-              fontFamily="sans-serif"
-              fill="#0f172a"
-            >
-              ID
-            </text>
-          </g>
+          {/* Green Vertical Weld Centerline */}
+          <line
+            x1={weldCenterX}
+            y1={plateTop - 25}
+            x2={weldCenterX}
+            y2={plateBottom + 25}
+            stroke="#16a34a"
+            strokeWidth="1.5"
+            strokeDasharray="5 3"
+          />
 
-          <g transform={`translate(${plateRight}, ${plateTop - 18})`}>
+          {/* Weld Center Text Label reading upright directly above centerline */}
+          <text
+            x={weldCenterX}
+            y={plateTop - 32}
+            textAnchor="middle"
+            fontSize="11"
+            fontFamily="sans-serif"
+            fontWeight="700"
+            fill="#16a34a"
+          >
+            Weld Center (0 mm)
+          </text>
+
+          {/* OD Surface Boundary Header (Left of top horizontal line) */}
+          <g transform={`translate(${plateLeft - 44}, ${plateTop})`}>
             <rect
-              x="-24"
-              y="-14"
-              width="48"
+              x="0"
+              y="-12"
+              width="36"
               height="24"
               rx="4"
               fill="#f8fafc"
@@ -411,10 +414,10 @@ export function WeldBevelSScanProfile({
               strokeWidth="1"
             />
             <text
-              x="0"
-              y="2"
+              x="18"
+              y="4.5"
               textAnchor="middle"
-              fontSize="12"
+              fontSize="11"
               fontWeight="900"
               fontFamily="sans-serif"
               fill="#0f172a"
@@ -423,91 +426,47 @@ export function WeldBevelSScanProfile({
             </text>
           </g>
 
-          {/* Green Horizontal Weld Centerline */}
-          <line
-            x1={plateLeft - 26}
-            y1={weldCenterY}
-            x2={plateRight + 44}
-            y2={weldCenterY}
-            stroke="#16a34a"
-            strokeWidth="1.5"
-            strokeDasharray="5 3"
-          />
-
-          {/* Weld Center Text Label reading horizontally on green centerline */}
-          <text
-            x={plateRight + 48}
-            y={weldCenterY + 3.5}
-            textAnchor="start"
-            fontSize="10"
-            fontFamily="sans-serif"
-            fontWeight="700"
-            fill="#16a34a"
-          >
-            Weld Center
-          </text>
-
-          {/* ID Landmarks: TT (Top Toe) and BT (Bottom Toe) - cleanly spaced at bevel coordinates */}
-          <g className="id-landmarks">
-            <line
-              x1={plateLeft - 18}
-              y1={idTtY}
-              x2={plateLeft}
-              y2={idTtY}
-              stroke="#94a3b8"
+          {/* ID Surface Boundary Header (Left of bottom horizontal line) */}
+          <g transform={`translate(${plateLeft - 44}, ${plateBottom})`}>
+            <rect
+              x="0"
+              y="-12"
+              width="36"
+              height="24"
+              rx="4"
+              fill="#f8fafc"
+              stroke="#cbd5e1"
               strokeWidth="1"
-              strokeDasharray="2 2"
             />
             <text
-              x={plateLeft - 22}
-              y={idTtY + 4}
-              textAnchor="end"
-              fontSize="12"
-              fontWeight="800"
+              x="18"
+              y="4.5"
+              textAnchor="middle"
+              fontSize="11"
+              fontWeight="900"
               fontFamily="sans-serif"
-              fill="#334155"
+              fill="#0f172a"
             >
-              TT
-            </text>
-
-            <line
-              x1={plateLeft - 18}
-              y1={idBtY}
-              x2={plateLeft}
-              y2={idBtY}
-              stroke="#94a3b8"
-              strokeWidth="1"
-              strokeDasharray="2 2"
-            />
-            <text
-              x={plateLeft - 22}
-              y={idBtY + 4}
-              textAnchor="end"
-              fontSize="12"
-              fontWeight="800"
-              fontFamily="sans-serif"
-              fill="#334155"
-            >
-              BT
+              ID
             </text>
           </g>
 
-          {/* OD Landmarks: TT (Top Toe) and BT (Bottom Toe) - cleanly spaced at bevel coordinates */}
+          {/* OD Landmarks: TT (Top Toe) and BT (Bottom Toe) along top horizontal edge */}
           <g className="od-landmarks">
             <line
-              x1={plateRight}
-              y1={odTtY}
-              x2={plateRight + 18}
-              y2={odTtY}
+              x1={odTtX}
+              y1={plateTop - 8}
+              x2={odTtX}
+              y2={plateTop}
               stroke="#94a3b8"
               strokeWidth="1"
               strokeDasharray="2 2"
             />
             <text
-              x={plateRight + 22}
-              y={odTtY + 4}
-              textAnchor="start"
-              fontSize="12"
+              x={odTtX}
+              y={plateTop - 12}
+              textAnchor="middle"
+              fontSize="11"
               fontWeight="800"
               fontFamily="sans-serif"
               fill="#334155"
@@ -516,19 +475,19 @@ export function WeldBevelSScanProfile({
             </text>
 
             <line
-              x1={plateRight}
-              y1={odBtY}
-              x2={plateRight + 18}
-              y2={odBtY}
+              x1={odBtX}
+              y1={plateTop - 8}
+              x2={odBtX}
+              y2={plateTop}
               stroke="#94a3b8"
               strokeWidth="1"
               strokeDasharray="2 2"
             />
             <text
-              x={plateRight + 22}
-              y={odBtY + 4}
-              textAnchor="start"
-              fontSize="12"
+              x={odBtX}
+              y={plateTop - 12}
+              textAnchor="middle"
+              fontSize="11"
               fontWeight="800"
               fontFamily="sans-serif"
               fill="#334155"
@@ -537,7 +496,52 @@ export function WeldBevelSScanProfile({
             </text>
           </g>
 
-          {/* 1. Propagating ID Crack (Initiates at ID left surface, penetrates towards OD) */}
+          {/* ID Landmarks: TT (Top Toe) and BT (Bottom Toe) along bottom horizontal edge */}
+          <g className="id-landmarks">
+            <line
+              x1={idTtX}
+              y1={plateBottom}
+              x2={idTtX}
+              y2={plateBottom + 8}
+              stroke="#94a3b8"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+            />
+            <text
+              x={idTtX}
+              y={plateBottom + 20}
+              textAnchor="middle"
+              fontSize="11"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#334155"
+            >
+              TT
+            </text>
+
+            <line
+              x1={idBtX}
+              y1={plateBottom}
+              x2={idBtX}
+              y2={plateBottom + 8}
+              stroke="#94a3b8"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+            />
+            <text
+              x={idBtX}
+              y={plateBottom + 20}
+              textAnchor="middle"
+              fontSize="11"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#334155"
+            >
+              BT
+            </text>
+          </g>
+
+          {/* 1. Propagating ID Crack (Initiates at ID bottom surface, penetrates UPWARDS towards OD) */}
           {(surfaceFilter === "BOTH" || surfaceFilter === "ID") && idCrackPath && (
             <g className="propagating-id-crack">
               {/* Glow backing */}
@@ -580,8 +584,10 @@ export function WeldBevelSScanProfile({
                 fill="#991b1b"
               />
 
-              {/* ID Crack Depth Callout Annotation */}
-              <g transform={`translate(${Math.min(width - 155, idCrackPath.tipX + 12)}, ${idCrackPath.tipY - 14})`}>
+              {/* ID Crack Depth Callout Annotation — Upright with clean border */}
+              <g
+                transform={`translate(${Math.max(plateLeft + 10, Math.min(plateRight - 150, idCrackPath.tipX - 70))}, ${Math.max(plateTop + 14, idCrackPath.tipY - 28)})`}
+              >
                 <rect
                   x="0"
                   y="0"
@@ -592,6 +598,7 @@ export function WeldBevelSScanProfile({
                   fillOpacity="0.95"
                   stroke="#e2e8f0"
                   strokeWidth="1"
+                  className="shadow-xs"
                 />
                 <text
                   x="71"
@@ -608,7 +615,7 @@ export function WeldBevelSScanProfile({
             </g>
           )}
 
-          {/* 2. Propagating OD Crack/Flaw (Initiates at OD right surface, penetrates towards ID) */}
+          {/* 2. Propagating OD Crack/Flaw (Initiates at OD top surface, penetrates DOWNWARDS towards ID) */}
           {(surfaceFilter === "BOTH" || surfaceFilter === "OD") && odCrackPath && (
             <g className="propagating-od-crack">
               {/* Glow backing */}
@@ -651,8 +658,10 @@ export function WeldBevelSScanProfile({
                 fill="#9a3412"
               />
 
-              {/* OD Crack Depth Callout Annotation */}
-              <g transform={`translate(${Math.max(10, odCrackPath.tipX - 145)}, ${odCrackPath.tipY + 8})`}>
+              {/* OD Crack Depth Callout Annotation — Upright with clean border */}
+              <g
+                transform={`translate(${Math.max(plateLeft + 10, Math.min(plateRight - 150, odCrackPath.tipX - 70))}, ${Math.min(plateBottom - 32, odCrackPath.tipY + 12)})`}
+              >
                 <rect
                   x="0"
                   y="0"
@@ -663,6 +672,7 @@ export function WeldBevelSScanProfile({
                   fillOpacity="0.95"
                   stroke="#e2e8f0"
                   strokeWidth="1"
+                  className="shadow-xs"
                 />
                 <text
                   x="71"
@@ -679,28 +689,54 @@ export function WeldBevelSScanProfile({
             </g>
           )}
 
-          {/* Horizontal Thickness Dimension Ruler at bottom */}
-          <g transform={`translate(0, ${plateBottom + 26})`}>
+          {/* Sound Ligament Visual Link between crack tips if both present */}
+          {hasIdCrack && hasOdCrack && idCrackPath && odCrackPath && soundWallRemainingMm > 0 && (
+            <g className="sound-ligament-guide pointer-events-none">
+              <line
+                x1={weldCenterX}
+                y1={odCrackPath.tipY}
+                x2={weldCenterX}
+                y2={idCrackPath.tipY}
+                stroke="#16a34a"
+                strokeWidth="1.5"
+                strokeDasharray="3 3"
+              />
+              <circle cx={weldCenterX} cy={odCrackPath.tipY} r="2.5" fill="#16a34a" />
+              <circle cx={weldCenterX} cy={idCrackPath.tipY} r="2.5" fill="#16a34a" />
+            </g>
+          )}
+
+          {/* Vertical Thickness Dimension Ruler on the right */}
+          <g transform={`translate(${plateRight + 25}, 0)`}>
             <line
-              x1={plateLeft}
-              y1="0"
-              x2={plateRight}
-              y2="0"
+              x1="0"
+              y1={plateTop}
+              x2="0"
+              y2={plateBottom}
               stroke="#475569"
               strokeWidth="1.2"
             />
-            <line x1={plateLeft} y1="-5" x2={plateLeft} y2="5" stroke="#475569" strokeWidth="1.2" />
-            <line x1={plateRight} y1="-5" x2={plateRight} y2="5" stroke="#475569" strokeWidth="1.2" />
+            <line x1="-5" y1={plateTop} x2="5" y2={plateTop} stroke="#475569" strokeWidth="1.2" />
+            <line x1="-5" y1={plateBottom} x2="5" y2={plateBottom} stroke="#475569" strokeWidth="1.2" />
             <text
-              x={(plateLeft + plateRight) / 2}
-              y="16"
-              textAnchor="middle"
-              fontSize="10.5"
+              x="12"
+              y={(plateTop + plateBottom) / 2 - 7}
+              fontSize="10"
               fontWeight="bold"
               fontFamily="sans-serif"
-              fill="#334155"
+              fill="#475569"
             >
-              Nominal Wall Thickness: {nominalWallThickness.toFixed(1)} mm
+              Nominal Wall Thickness:
+            </text>
+            <text
+              x="12"
+              y={(plateTop + plateBottom) / 2 + 10}
+              fontSize="12"
+              fontWeight="900"
+              fontFamily="sans-serif"
+              fill="#0f172a"
+            >
+              {nominalWallThickness.toFixed(1)} mm
             </text>
           </g>
 
