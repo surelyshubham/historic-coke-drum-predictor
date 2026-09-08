@@ -84,6 +84,51 @@ export function WeldWidthPlanPlot({
     return offsets[hash % offsets.length];
   };
 
+  // Authentic Depth Severity Grading matching client reference standard:
+  // 0.5 - 3.0 mm: Yellow
+  // 3.1 - 6.0 mm: Orange
+  // 6.1 - 10.0 mm: Red
+  // > 10.0 mm: Dark Red / Maroon
+  const getDepthGrade = (depth: number) => {
+    if (depth <= 3.0) {
+      return {
+        gradientId: "url(#indication-yellow)",
+        strokeColor: "#ca8a04",
+        darkColor: "#854d0e",
+        textColor: "#713f12",
+        badgeBg: "#fef9c3",
+        label: "0.5 – 3.0 mm",
+      };
+    } else if (depth <= 6.0) {
+      return {
+        gradientId: "url(#indication-orange)",
+        strokeColor: "#ea580c",
+        darkColor: "#9a3412",
+        textColor: "#9a3412",
+        badgeBg: "#ffedd5",
+        label: "3.1 – 6.0 mm",
+      };
+    } else if (depth <= 10.0) {
+      return {
+        gradientId: "url(#indication-red)",
+        strokeColor: "#b91c1c",
+        darkColor: "#7f1d1d",
+        textColor: "#991b1b",
+        badgeBg: "#fee2e2",
+        label: "6.1 – 10.0 mm",
+      };
+    } else {
+      return {
+        gradientId: "url(#indication-darkred)",
+        strokeColor: "#7f1d1d",
+        darkColor: "#450a0a",
+        textColor: "#450a0a",
+        badgeBg: "#fecaca",
+        label: "> 10.0 mm",
+      };
+    }
+  };
+
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
@@ -212,6 +257,37 @@ export function WeldWidthPlanPlot({
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
+          <defs>
+            {/* Authentic Defect Depth Gradients matching client standard */}
+            {/* 0.5 - 3.0 mm: Yellow */}
+            <linearGradient id="indication-yellow" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#fef08a" />
+              <stop offset="45%" stopColor="#facc15" />
+              <stop offset="100%" stopColor="#eab308" />
+            </linearGradient>
+
+            {/* 3.1 - 6.0 mm: Orange */}
+            <linearGradient id="indication-orange" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#fed7aa" />
+              <stop offset="45%" stopColor="#fb923c" />
+              <stop offset="100%" stopColor="#f97316" />
+            </linearGradient>
+
+            {/* 6.1 - 10.0 mm: Red */}
+            <linearGradient id="indication-red" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#fca5a5" />
+              <stop offset="45%" stopColor="#f87171" />
+              <stop offset="100%" stopColor="#dc2626" />
+            </linearGradient>
+
+            {/* > 10.0 mm: Dark Red / Maroon */}
+            <linearGradient id="indication-darkred" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#f87171" />
+              <stop offset="45%" stopColor="#dc2626" />
+              <stop offset="100%" stopColor="#991b1b" />
+            </linearGradient>
+          </defs>
+
           {/* Main Plot Area Background */}
           <rect
             x={margin.left}
@@ -354,27 +430,30 @@ export function WeldWidthPlanPlot({
             Index Offset (mm)
           </text>
 
-          {/* Render Defect Bounding Boxes */}
+          {/* Render Defect Indications as Authentic Depth-Coded Acoustic Marks */}
           {indications.map((pi) => {
             const startX = pi.circumferentialPosition;
             const flawLen = Math.max(6, pi.latestLength || 15);
             const x1 = scaleX(startX);
             const x2 = scaleX(startX + flawLen);
-            const boxWidth = Math.max(8, x2 - x1);
+            const boxWidth = Math.max(10, x2 - x1);
 
             const offset = getFlawOffset(pi);
-            const boxHeightMm = Math.max(1.8, Math.min(3.5, pi.latestDepth || 2.2));
+            const boxHeightMm = Math.max(2.0, Math.min(3.6, pi.latestDepth || 2.4));
             const yTop = scaleY(offset + boxHeightMm / 2);
             const yBottom = scaleY(offset - boxHeightMm / 2);
-            const boxHeight = Math.max(8, yBottom - yTop);
+            const boxHeight = Math.max(9, yBottom - yTop);
 
             const isSelected = selectedFlawCode === pi.code;
+            const effectiveDepth = Math.max(
+              pi.latestDepth || 0,
+              pi.latestDepthId || 0,
+              pi.latestDepthOd || 0
+            ) || 2.5;
 
-            // Color matching reference image (thick green or blue borders, hollow body)
-            let strokeColor = "#15803d"; // Green default
-            if (pi.latestLength > 100 || pi.growthDelta > 100) strokeColor = "#15803d";
-            if (pi.latestDepth > 3.0) strokeColor = "#2563eb"; // Blue
-            if (pi.growthDelta > 300) strokeColor = "#dc2626"; // Red for severe
+            const depthGrade = getDepthGrade(effectiveDepth);
+            const rx = Math.min(boxHeight / 2, 4.5);
+            const flawCodeLabel = pi.code.split("-").pop() || pi.code;
 
             return (
               <g
@@ -382,30 +461,100 @@ export function WeldWidthPlanPlot({
                 onClick={() => onSelectFlaw?.(pi)}
                 className="cursor-pointer group"
               >
-                {/* Defect Box */}
+                {/* Indication Echo Halo when selected */}
+                {isSelected && (
+                  <rect
+                    x={x1 - 3}
+                    y={yTop - 3}
+                    width={boxWidth + 6}
+                    height={boxHeight + 6}
+                    rx={rx + 2}
+                    fill="none"
+                    stroke={depthGrade.strokeColor}
+                    strokeWidth="2.5"
+                    strokeDasharray="4 2"
+                    className="animate-pulse"
+                  />
+                )}
+
+                {/* Main Acoustic Indication Capsule (Solid Depth Color Fill) */}
                 <rect
                   x={x1}
                   y={yTop}
                   width={boxWidth}
                   height={boxHeight}
-                  fill={isSelected ? `${strokeColor}25` : "#ffffff90"}
-                  stroke={strokeColor}
-                  strokeWidth={isSelected ? "3" : "2.2"}
-                  rx="1"
-                  className="transition-all hover:stroke-[3.5]"
+                  rx={rx}
+                  fill={depthGrade.gradientId}
+                  fillOpacity={isSelected ? "1" : "0.92"}
+                  stroke={isSelected ? depthGrade.darkColor : depthGrade.strokeColor}
+                  strokeWidth={isSelected ? "2.5" : "1.6"}
+                  filter={isSelected ? "drop-shadow(0 2px 5px rgba(0,0,0,0.3))" : undefined}
+                  className="transition-all hover:brightness-110"
                 />
-                {/* Label text inside or beside */}
-                {boxWidth > 35 && (
-                  <text
-                    x={x1 + boxWidth / 2}
-                    y={yTop + boxHeight / 2 + 3}
-                    textAnchor="middle"
-                    fontSize="8.5"
-                    fontWeight="bold"
-                    fill={strokeColor}
-                  >
-                    {pi.code.split("-").pop()}
-                  </text>
+
+                {/* Acoustic Core Reflection Line */}
+                <line
+                  x1={x1 + rx}
+                  y1={yTop + boxHeight / 2}
+                  x2={x1 + boxWidth - rx}
+                  y2={yTop + boxHeight / 2}
+                  stroke={depthGrade.darkColor}
+                  strokeWidth="1.2"
+                  strokeOpacity="0.75"
+                  strokeLinecap="round"
+                />
+
+                {/* Crisp Flaw Code Badge - Never truncated */}
+                {boxWidth >= 32 ? (
+                  <g transform={`translate(${x1 + boxWidth / 2}, ${yTop + boxHeight / 2})`}>
+                    <rect
+                      x={-((flawCodeLabel.length * 5.4 + 8) / 2)}
+                      y="-6.5"
+                      width={flawCodeLabel.length * 5.4 + 8}
+                      height="13"
+                      rx="3"
+                      fill="#ffffff"
+                      fillOpacity="0.92"
+                      stroke={depthGrade.strokeColor}
+                      strokeWidth="0.8"
+                    />
+                    <text
+                      x="0"
+                      y="3.2"
+                      textAnchor="middle"
+                      fontSize="8.5"
+                      fontWeight="bold"
+                      fontFamily="sans-serif"
+                      fill="#0f172a"
+                    >
+                      {flawCodeLabel}
+                    </text>
+                  </g>
+                ) : (
+                  <g transform={`translate(${x1 + boxWidth / 2}, ${offset >= 0 ? yTop - 9 : yTop + boxHeight + 9})`}>
+                    <rect
+                      x={-((flawCodeLabel.length * 5.4 + 8) / 2)}
+                      y="-6.5"
+                      width={flawCodeLabel.length * 5.4 + 8}
+                      height="13"
+                      rx="3"
+                      fill="#ffffff"
+                      fillOpacity="0.95"
+                      stroke={depthGrade.strokeColor}
+                      strokeWidth="0.8"
+                    />
+                    <text
+                      x="0"
+                      y="3.2"
+                      textAnchor="middle"
+                      fontSize="8"
+                      fontWeight="bold"
+                      fontFamily="sans-serif"
+                      fill="#0f172a"
+                    >
+                      {flawCodeLabel}
+                    </text>
+                  </g>
                 )}
               </g>
             );
@@ -460,7 +609,7 @@ export function WeldWidthPlanPlot({
               hoverCursor.xPx > width / 2 ? "left-4 top-4" : "right-4 top-4"
             }`}
             style={{
-              minWidth: "220px",
+              minWidth: "230px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
@@ -490,9 +639,24 @@ export function WeldWidthPlanPlot({
                     <span className="text-slate-500">Flaw Length:</span>
                     <span className="font-bold text-slate-900">{hoverCursor.hoveredFlaw.latestLength} mm</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-slate-500">Flaw Depth:</span>
-                    <span className="font-bold text-sky-700">{hoverCursor.hoveredFlaw.latestDepth} mm</span>
+                    <span className="font-bold inline-flex items-center gap-1.5">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full inline-block"
+                        style={{
+                          backgroundColor:
+                            (hoverCursor.hoveredFlaw.latestDepth || 0) <= 3.0
+                              ? "#eab308"
+                              : (hoverCursor.hoveredFlaw.latestDepth || 0) <= 6.0
+                              ? "#f97316"
+                              : (hoverCursor.hoveredFlaw.latestDepth || 0) <= 10.0
+                              ? "#dc2626"
+                              : "#991b1b",
+                        }}
+                      />
+                      <span className="text-slate-900 font-mono">{hoverCursor.hoveredFlaw.latestDepth} mm</span>
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Annual Growth:</span>
@@ -505,23 +669,44 @@ export function WeldWidthPlanPlot({
         )}
       </div>
 
-      {/* Legend matching Image 1 */}
-      <div className="flex flex-wrap items-center justify-between text-xs text-slate-600 pt-1">
-        <div className="flex items-center gap-4">
+      {/* Depth Severity Color Scale & Weld Guidelines Legend */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-slate-600 pt-2 border-t border-slate-100">
+        {/* Depth Severity Color Scale */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Depth Severity:</span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-yellow-50 border border-yellow-300 text-yellow-900 font-semibold text-[11px]">
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-600 inline-block"></span>
+            <span>0.5 – 3.0 mm</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-orange-50 border border-orange-300 text-orange-900 font-semibold text-[11px]">
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 border border-orange-700 inline-block"></span>
+            <span>3.1 – 6.0 mm</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-50 border border-red-300 text-red-900 font-semibold text-[11px]">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 border border-red-700 inline-block"></span>
+            <span>6.1 – 10.0 mm</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-rose-100 border border-rose-400 text-rose-950 font-bold text-[11px]">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-800 border border-red-950 inline-block"></span>
+            <span>&gt; 10.0 mm</span>
+          </span>
+        </div>
+
+        {/* Weld Guidelines */}
+        <div className="flex flex-wrap items-center gap-3 text-[11px]">
           <span className="flex items-center gap-1.5">
             <span className="w-4 h-0.5 border-t-2 border-dashed border-emerald-500 inline-block"></span>
             <span>Centerline (0 mm)</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-4 h-0.5 border-t-2 border-dashed border-purple-600 inline-block"></span>
-            <span>Weld Cap / Toes (±3 mm)</span>
+            <span>Weld Cap (±3 mm)</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-4 h-0.5 border-t-2 border-dashed border-slate-500 inline-block"></span>
-            <span>HAZ Limits (±6 mm)</span>
+            <span>HAZ (±6 mm)</span>
           </span>
         </div>
-        <span className="text-slate-400 italic text-[11px]">Click any indication box to inspect transverse cross-section</span>
       </div>
     </div>
   );

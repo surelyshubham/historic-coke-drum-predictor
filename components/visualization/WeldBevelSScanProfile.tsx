@@ -328,9 +328,9 @@ export function WeldBevelSScanProfile({
           />
           <text
             x={plateLeft + (1.5 / nominalWallThickness) * plateWidth}
-            y={plateTop + 14}
+            y={plateTop + 22}
             textAnchor="middle"
-            fontSize="8.5"
+            fontSize="8"
             fontWeight="bold"
             fill="#0284c7"
           >
@@ -374,103 +374,168 @@ export function WeldBevelSScanProfile({
             strokeWidth="1.5"
           />
 
+          {/* ID & OD Surface Boundary Headers (Top outside plate - cleanly spaced with zero superposition) */}
+          <g transform={`translate(${plateLeft}, ${plateTop - 18})`}>
+            <rect
+              x="-24"
+              y="-14"
+              width="48"
+              height="24"
+              rx="4"
+              fill="#f8fafc"
+              stroke="#cbd5e1"
+              strokeWidth="1"
+            />
+            <text
+              x="0"
+              y="2"
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="900"
+              fontFamily="sans-serif"
+              fill="#0f172a"
+            >
+              ID
+            </text>
+          </g>
+
+          <g transform={`translate(${plateRight}, ${plateTop - 18})`}>
+            <rect
+              x="-24"
+              y="-14"
+              width="48"
+              height="24"
+              rx="4"
+              fill="#f8fafc"
+              stroke="#cbd5e1"
+              strokeWidth="1"
+            />
+            <text
+              x="0"
+              y="2"
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="900"
+              fontFamily="sans-serif"
+              fill="#0f172a"
+            >
+              OD
+            </text>
+          </g>
+
           {/* Green Horizontal Weld Centerline */}
           <line
             x1={plateLeft - 26}
             y1={weldCenterY}
-            x2={plateRight + 36}
+            x2={plateRight + 44}
             y2={weldCenterY}
-            stroke="#86efac"
+            stroke="#16a34a"
             strokeWidth="1.5"
+            strokeDasharray="5 3"
           />
 
-          {/* Weld Center Text Label reading downwards along right edge */}
+          {/* Weld Center Text Label reading horizontally on green centerline */}
           <text
-            x={plateRight + 44}
-            y={weldCenterY - 28}
+            x={plateRight + 48}
+            y={weldCenterY + 3.5}
             textAnchor="start"
-            fontSize="10.5"
+            fontSize="10"
             fontFamily="sans-serif"
-            fontWeight="600"
-            fill="#64748b"
-            transform={`rotate(90, ${plateRight + 44}, ${weldCenterY - 28})`}
+            fontWeight="700"
+            fill="#16a34a"
           >
             Weld Center
           </text>
 
-          {/* ID Surface Label (Upper left outside plate) */}
-          <text
-            x={plateLeft - 14}
-            y={weldCenterY - 95}
-            textAnchor="end"
-            fontSize="15"
-            fontWeight="900"
-            fontFamily="sans-serif"
-            fill="#0f172a"
-          >
-            ID
-          </text>
+          {/* ID Landmarks: TT (Top Toe) and BT (Bottom Toe) - cleanly spaced at bevel coordinates */}
+          <g className="id-landmarks">
+            <line
+              x1={plateLeft - 18}
+              y1={idTtY}
+              x2={plateLeft}
+              y2={idTtY}
+              stroke="#94a3b8"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+            />
+            <text
+              x={plateLeft - 22}
+              y={idTtY + 4}
+              textAnchor="end"
+              fontSize="12"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#334155"
+            >
+              TT
+            </text>
 
-          {/* OD Surface Label (Upper right outside plate) */}
-          <text
-            x={plateRight + 14}
-            y={weldCenterY - 95}
-            textAnchor="start"
-            fontSize="15"
-            fontWeight="900"
-            fontFamily="sans-serif"
-            fill="#0f172a"
-          >
-            OD
-          </text>
+            <line
+              x1={plateLeft - 18}
+              y1={idBtY}
+              x2={plateLeft}
+              y2={idBtY}
+              stroke="#94a3b8"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+            />
+            <text
+              x={plateLeft - 22}
+              y={idBtY + 4}
+              textAnchor="end"
+              fontSize="12"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#334155"
+            >
+              BT
+            </text>
+          </g>
 
-          {/* ID Landmarks: TT (Top Toe) and BT (Bottom Toe) */}
-          <text
-            x={plateLeft - 8}
-            y={idTtY + 4}
-            textAnchor="end"
-            fontSize="13"
-            fontWeight="700"
-            fontFamily="sans-serif"
-            fill="#0f172a"
-          >
-            TT
-          </text>
-          <text
-            x={plateLeft - 8}
-            y={idBtY + 4}
-            textAnchor="end"
-            fontSize="13"
-            fontWeight="700"
-            fontFamily="sans-serif"
-            fill="#0f172a"
-          >
-            BT
-          </text>
+          {/* OD Landmarks: TT (Top Toe) and BT (Bottom Toe) - cleanly spaced at bevel coordinates */}
+          <g className="od-landmarks">
+            <line
+              x1={plateRight}
+              y1={odTtY}
+              x2={plateRight + 18}
+              y2={odTtY}
+              stroke="#94a3b8"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+            />
+            <text
+              x={plateRight + 22}
+              y={odTtY + 4}
+              textAnchor="start"
+              fontSize="12"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#334155"
+            >
+              TT
+            </text>
 
-          {/* OD Landmarks: TT (Top Toe) and BT (Bottom Toe) */}
-          <text
-            x={plateRight + 8}
-            y={odTtY + 4}
-            textAnchor="start"
-            fontSize="13"
-            fontWeight="700"
-            fontFamily="sans-serif"
-            fill="#0f172a"
-          >
-            TT
-          </text>
-          <text
-            x={plateRight + 8}
-            y={odBtY + 4}
-            textAnchor="start"
-            fontSize="13"
-            fontWeight="700"
-            fontFamily="sans-serif"
-            fill="#0f172a"
-          >
-            BT
-          </text>
+            <line
+              x1={plateRight}
+              y1={odBtY}
+              x2={plateRight + 18}
+              y2={odBtY}
+              stroke="#94a3b8"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+            />
+            <text
+              x={plateRight + 22}
+              y={odBtY + 4}
+              textAnchor="start"
+              fontSize="12"
+              fontWeight="800"
+              fontFamily="sans-serif"
+              fill="#334155"
+            >
+              BT
+            </text>
+          </g>
 
           {/* 1. Propagating ID Crack (Initiates at ID left surface, penetrates towards OD) */}
           {(surfaceFilter === "BOTH" || surfaceFilter === "ID") && idCrackPath && (
