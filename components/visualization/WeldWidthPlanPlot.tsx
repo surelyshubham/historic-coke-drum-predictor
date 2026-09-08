@@ -430,19 +430,14 @@ export function WeldWidthPlanPlot({
             Index Offset (mm)
           </text>
 
-          {/* Render Defect Indications as Authentic Depth-Coded Acoustic Marks */}
+          {/* Render Defect Indications as Authentic Depth-Coded Proportional Acoustic Streaks */}
           {indications.map((pi) => {
             const startX = pi.circumferentialPosition;
             const flawLen = Math.max(6, pi.latestLength || 15);
             const x1 = scaleX(startX);
             const x2 = scaleX(startX + flawLen);
-            const boxWidth = Math.max(10, x2 - x1);
-
             const offset = getFlawOffset(pi);
-            const boxHeightMm = Math.max(2.0, Math.min(3.6, pi.latestDepth || 2.4));
-            const yTop = scaleY(offset + boxHeightMm / 2);
-            const yBottom = scaleY(offset - boxHeightMm / 2);
-            const boxHeight = Math.max(9, yBottom - yTop);
+            const yCenter = scaleY(offset);
 
             const isSelected = selectedFlawCode === pi.code;
             const effectiveDepth = Math.max(
@@ -452,8 +447,10 @@ export function WeldWidthPlanPlot({
             ) || 2.5;
 
             const depthGrade = getDepthGrade(effectiveDepth);
-            const rx = Math.min(boxHeight / 2, 4.5);
+            // Proportional acoustic thickness based on depth
+            const streakThickness = Math.max(4, Math.min(10, (effectiveDepth / 12) * 7 + 3.5));
             const flawCodeLabel = pi.code.split("-").pop() || pi.code;
+            const midX = (x1 + x2) / 2;
 
             return (
               <g
@@ -461,101 +458,72 @@ export function WeldWidthPlanPlot({
                 onClick={() => onSelectFlaw?.(pi)}
                 className="cursor-pointer group"
               >
-                {/* Indication Echo Halo when selected */}
+                {/* Indication Selection / Hover Glow Backing */}
                 {isSelected && (
-                  <rect
-                    x={x1 - 3}
-                    y={yTop - 3}
-                    width={boxWidth + 6}
-                    height={boxHeight + 6}
-                    rx={rx + 2}
-                    fill="none"
+                  <line
+                    x1={x1}
+                    y1={yCenter}
+                    x2={x2}
+                    y2={yCenter}
                     stroke={depthGrade.strokeColor}
-                    strokeWidth="2.5"
-                    strokeDasharray="4 2"
+                    strokeWidth={streakThickness + 6}
+                    strokeLinecap="round"
+                    strokeOpacity="0.4"
                     className="animate-pulse"
                   />
                 )}
 
-                {/* Main Acoustic Indication Capsule (Solid Depth Color Fill) */}
-                <rect
-                  x={x1}
-                  y={yTop}
-                  width={boxWidth}
-                  height={boxHeight}
-                  rx={rx}
-                  fill={depthGrade.gradientId}
-                  fillOpacity={isSelected ? "1" : "0.92"}
-                  stroke={isSelected ? depthGrade.darkColor : depthGrade.strokeColor}
-                  strokeWidth={isSelected ? "2.5" : "1.6"}
-                  filter={isSelected ? "drop-shadow(0 2px 5px rgba(0,0,0,0.3))" : undefined}
+                {/* Main Acoustic Indication Line with Rounded Caps (Proportional Depth Stroke) */}
+                <line
+                  x1={x1}
+                  y1={yCenter}
+                  x2={x2}
+                  y2={yCenter}
+                  stroke={depthGrade.strokeColor}
+                  strokeWidth={streakThickness}
+                  strokeLinecap="round"
                   className="transition-all hover:brightness-110"
                 />
 
-                {/* Acoustic Core Reflection Line */}
+                {/* Core Ultrasonic Reflection Inner Highlight */}
                 <line
-                  x1={x1 + rx}
-                  y1={yTop + boxHeight / 2}
-                  x2={x1 + boxWidth - rx}
-                  y2={yTop + boxHeight / 2}
-                  stroke={depthGrade.darkColor}
-                  strokeWidth="1.2"
-                  strokeOpacity="0.75"
+                  x1={x1 + 2}
+                  y1={yCenter}
+                  x2={x2 - 2}
+                  y2={yCenter}
+                  stroke="#ffffff"
+                  strokeWidth={Math.max(1, streakThickness * 0.35)}
                   strokeLinecap="round"
+                  strokeOpacity="0.75"
                 />
 
-                {/* Crisp Flaw Code Badge - Never truncated */}
-                {boxWidth >= 32 ? (
-                  <g transform={`translate(${x1 + boxWidth / 2}, ${yTop + boxHeight / 2})`}>
-                    <rect
-                      x={-((flawCodeLabel.length * 5.4 + 8) / 2)}
-                      y="-6.5"
-                      width={flawCodeLabel.length * 5.4 + 8}
-                      height="13"
-                      rx="3"
-                      fill="#ffffff"
-                      fillOpacity="0.92"
-                      stroke={depthGrade.strokeColor}
-                      strokeWidth="0.8"
-                    />
-                    <text
-                      x="0"
-                      y="3.2"
-                      textAnchor="middle"
-                      fontSize="8.5"
-                      fontWeight="bold"
-                      fontFamily="sans-serif"
-                      fill="#0f172a"
-                    >
-                      {flawCodeLabel}
-                    </text>
-                  </g>
-                ) : (
-                  <g transform={`translate(${x1 + boxWidth / 2}, ${offset >= 0 ? yTop - 9 : yTop + boxHeight + 9})`}>
-                    <rect
-                      x={-((flawCodeLabel.length * 5.4 + 8) / 2)}
-                      y="-6.5"
-                      width={flawCodeLabel.length * 5.4 + 8}
-                      height="13"
-                      rx="3"
-                      fill="#ffffff"
-                      fillOpacity="0.95"
-                      stroke={depthGrade.strokeColor}
-                      strokeWidth="0.8"
-                    />
-                    <text
-                      x="0"
-                      y="3.2"
-                      textAnchor="middle"
-                      fontSize="8"
-                      fontWeight="bold"
-                      fontFamily="sans-serif"
-                      fill="#0f172a"
-                    >
-                      {flawCodeLabel}
-                    </text>
-                  </g>
-                )}
+                {/* Clean Flaw Code Label (Halo Text, No Blocky Box) */}
+                <g className="pointer-events-none">
+                  <text
+                    x={midX}
+                    y={offset >= 0 ? yCenter - streakThickness / 2 - 4 : yCenter + streakThickness / 2 + 11}
+                    textAnchor="middle"
+                    fontSize="9.5"
+                    fontWeight="800"
+                    fill="#ffffff"
+                    stroke="#ffffff"
+                    strokeWidth="3"
+                    fontFamily="sans-serif"
+                  >
+                    {flawCodeLabel}
+                  </text>
+                  <text
+                    x={midX}
+                    y={offset >= 0 ? yCenter - streakThickness / 2 - 4 : yCenter + streakThickness / 2 + 11}
+                    textAnchor="middle"
+                    fontSize="9.5"
+                    fontWeight="800"
+                    fill={depthGrade.darkColor}
+                    fontFamily="sans-serif"
+                  >
+                    {flawCodeLabel}
+                  </text>
+                </g>
               </g>
             );
           })}

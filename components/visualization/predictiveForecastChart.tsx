@@ -76,8 +76,8 @@ export function PredictiveForecastChart({
 
   // SVG Chart Geometry & Scaling
   const chartConfig = useMemo(() => {
-    const width = 760;
-    const height = 360;
+    const width = 880;
+    const height = 440;
     const margin = { top: 35, right: 35, bottom: 45, left: 60 };
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
@@ -329,13 +329,13 @@ export function PredictiveForecastChart({
       </div>
 
       {/* Main Grid: Chart on Left, Color Codes & Thresholds on Right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: SVG Chart */}
-        <div className="lg:col-span-8 relative">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* Left: SVG Chart (Expanded window) */}
+        <div className="lg:col-span-9 relative">
           <svg
             ref={svgRef}
             viewBox={`0 0 ${chartConfig.width} ${chartConfig.height}`}
-            className="w-full h-auto select-none overflow-visible cursor-crosshair"
+            className="w-full h-auto min-h-[380px] max-h-[520px] select-none overflow-visible cursor-crosshair"
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
           >
@@ -689,7 +689,7 @@ export function PredictiveForecastChart({
         </div>
 
         {/* Right: Custom Color Codes & % Thickness Settings Panel */}
-        <div className="lg:col-span-4 bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4 text-xs">
+        <div className="lg:col-span-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3.5 text-xs">
           <div className="flex items-center justify-between border-b border-slate-200 pb-2">
             <div className="flex items-center gap-1.5 font-bold text-slate-800">
               <Sliders size={15} className="text-sky-600" />

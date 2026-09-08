@@ -330,9 +330,9 @@ export function WeldBevelSScanProfile({
             strokeDasharray="3 3"
           />
           <text
-            x={plateLeft + 16}
+            x={plateRight - 16}
             y={plateBottom - ((3.0 / nominalWallThickness) * plateThicknessPx) / 2 + 3.5}
-            textAnchor="start"
+            textAnchor="end"
             fontSize="9"
             fontWeight="bold"
             fill="#0284c7"
@@ -590,12 +590,13 @@ export function WeldBevelSScanProfile({
                 const boxH = 22;
                 const isLeft = idCrackPath.tipX <= weldCenterX;
                 const boxX = isLeft
-                  ? Math.max(plateLeft + 10, idCrackPath.tipX - boxW - 24)
-                  : Math.min(plateRight - boxW - 10, idCrackPath.tipX + 24);
-                const boxY = Math.max(plateTop + 8, Math.min(plateBottom - boxH - 8, idCrackPath.tipY - boxH / 2));
+                  ? Math.max(plateLeft + 12, idCrackPath.tipX - boxW - 28)
+                  : Math.min(plateRight - boxW - 12, idCrackPath.tipX + 28);
+                // Float comfortably in the upper clear base metal area well above the bottom clad zone
+                const boxY = Math.max(plateTop + 14, Math.min(plateBottom - 48, idCrackPath.tipY - boxH - 16));
                 const leaderStartX = isLeft ? boxX + boxW : boxX;
                 const leaderStartY = boxY + boxH / 2;
-                const leaderEndX = isLeft ? idCrackPath.tipX - 14 : idCrackPath.tipX + 14;
+                const leaderEndX = isLeft ? idCrackPath.tipX - 12 : idCrackPath.tipX + 12;
                 const leaderEndY = idCrackPath.tipY;
 
                 return (
@@ -693,12 +694,13 @@ export function WeldBevelSScanProfile({
                 const boxH = 22;
                 const isLeft = odCrackPath.tipX <= weldCenterX;
                 const boxX = isLeft
-                  ? Math.max(plateLeft + 10, odCrackPath.tipX - boxW - 24)
-                  : Math.min(plateRight - boxW - 10, odCrackPath.tipX + 24);
-                const boxY = Math.max(plateTop + 8, Math.min(plateBottom - boxH - 8, odCrackPath.tipY - boxH / 2));
+                  ? Math.max(plateLeft + 12, odCrackPath.tipX - boxW - 28)
+                  : Math.min(plateRight - boxW - 12, odCrackPath.tipX + 28);
+                // Float comfortably in lower clear base metal below the top OD surface
+                const boxY = Math.max(plateTop + 24, Math.min(plateBottom - 30, odCrackPath.tipY + 16));
                 const leaderStartX = isLeft ? boxX + boxW : boxX;
                 const leaderStartY = boxY + boxH / 2;
-                const leaderEndX = isLeft ? odCrackPath.tipX - 14 : odCrackPath.tipX + 14;
+                const leaderEndX = isLeft ? odCrackPath.tipX - 12 : odCrackPath.tipX + 12;
                 const leaderEndY = odCrackPath.tipY;
 
                 return (
