@@ -194,7 +194,7 @@ export function WeldHistoricalVsCurrentGraph({
       </div>
 
       {/* Main SVG Comparison Chart */}
-      <div className="relative overflow-x-auto">
+      <div id={`report-historical-graph-${weldName}`} className="relative overflow-x-auto">
         <svg
           viewBox={`0 0 ${chartConfig.width} ${chartConfig.height}`}
           className="w-full h-auto min-h-[300px] select-none"

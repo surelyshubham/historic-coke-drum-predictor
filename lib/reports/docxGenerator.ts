@@ -422,7 +422,6 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
           }),
           execSummaryTable,
 
-          // Section 4: Visual Inspection Suite Overview
           // Section 4: Visual Inspection Suite Overview with Embedded Graphic Images
           new Paragraph({
             heading: HeadingLevel.HEADING_1,
@@ -437,170 +436,168 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
             ],
           }),
 
-          // Figure 1: 360 Polar Ring Map Image
-          ...(payload.images?.polarRingImage && parseBase64Image(payload.images.polarRingImage)
-            ? [
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { before: 80, after: 60 },
-                  children: [
-                    new ImageRun({
-                      data: parseBase64Image(payload.images.polarRingImage)!,
-                      transformation: {
-                        width: 480,
-                        height: 340,
-                      },
-                      type: "png",
-                    }),
-                  ],
-                }),
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { after: 200 },
-                  children: [
-                    new TextRun({
-                      text: `Figure 1: Full 360° Circumferential Polar Ring Map (~${circumferenceM} m Shell Cross-Section, North 0°, Anticlockwise Scan with Slots L1–L28)`,
-                      italics: true,
-                      bold: true,
-                      size: 17,
-                      color: "334155",
-                    }),
-                  ],
-                }),
-              ]
-            : [
-                new Paragraph({
-                  bullet: { level: 0 },
-                  children: [
-                    new TextRun({ text: "360° Circular Polar Ring Map: ", bold: true }),
-                    new TextRun({ text: `Displays complete circumferential shell cross-section (~${circumferenceM} m perimeter) scanned anticlockwise from North 0° with 28 longitudinal slots (L1–L28) and depth-tiered flaw severity bands.` }),
-                  ],
-                }),
-              ]),
+          ...(() => {
+            const uniqueWelds = Array.from(new Set(indications.map((i) => i.weldName))).filter(Boolean);
+            const weldList = uniqueWelds.length > 0 ? uniqueWelds : ["C4"];
+            const paras: any[] = [];
 
-          // Figure 2: Weld Width Plan Projection Image
-          ...(payload.images?.weldPlanImage && parseBase64Image(payload.images.weldPlanImage)
-            ? [
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { before: 100, after: 60 },
-                  children: [
-                    new ImageRun({
-                      data: parseBase64Image(payload.images.weldPlanImage)!,
-                      transformation: {
-                        width: 550,
-                        height: 220,
-                      },
-                      type: "png",
-                    }),
-                  ],
-                }),
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { after: 200 },
-                  children: [
-                    new TextRun({
-                      text: "Figure 2: Top-Down C-Scan Weld Width with Indications Plan View (Index Offset vs ScanLength)",
-                      italics: true,
-                      bold: true,
-                      size: 17,
-                      color: "334155",
-                    }),
-                  ],
-                }),
-              ]
-            : [
-                new Paragraph({
-                  bullet: { level: 0 },
-                  children: [
-                    new TextRun({ text: "Weld Width Plan Projection (C-Scan): ", bold: true }),
-                    new TextRun({ text: "Maps flaw positions relative to weld centerline (0 mm), weld cap toes (±3 mm), and HAZ boundaries (±6 mm)." }),
-                  ],
-                }),
-              ]),
+            weldList.forEach((wName, wIdx) => {
+              const wImages = payload.images?.weldImages?.[wName];
+              const polarImg = wImages?.polarRingImage || (wIdx === 0 ? payload.images?.polarRingImage : undefined);
+              const planImg = wImages?.weldPlanImage || (wIdx === 0 ? payload.images?.weldPlanImage : undefined);
+              const histImg = wImages?.historicalGraphImage;
+              const forecastImg = wImages?.forecastCurveImage || (wIdx === 0 ? payload.images?.forecastCurveImage : undefined);
 
-          // Figure 3: Bevel S-Scan Cross-Section Image
-          ...(payload.images?.bevelSScanImage && parseBase64Image(payload.images.bevelSScanImage)
-            ? [
+              paras.push(
                 new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { before: 100, after: 60 },
-                  children: [
-                    new ImageRun({
-                      data: parseBase64Image(payload.images.bevelSScanImage)!,
-                      transformation: {
-                        width: 530,
-                        height: 210,
-                      },
-                      type: "png",
-                    }),
-                  ],
-                }),
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { after: 200 },
+                  heading: HeadingLevel.HEADING_2,
+                  spacing: { before: 200, after: 100 },
                   children: [
                     new TextRun({
-                      text: "Figure 3: Through-Wall Weld Cross-Section Profile (Asymmetric Double-V Bevel with ID/OD Boundaries, Top Toe / Bottom Toe Landmarks, and Propagating Crack)",
-                      italics: true,
+                      text: `4.${wIdx + 1} Weld Joint ${wName} Inspection Visualizations & Lifing Assessment`,
                       bold: true,
-                      size: 17,
-                      color: "334155",
+                      size: 20,
+                      color: "0369a1",
                     }),
                   ],
-                }),
-              ]
-            : [
-                new Paragraph({
-                  bullet: { level: 0 },
-                  children: [
-                    new TextRun({ text: "Weld Bevel Cross-Section Profile: ", bold: true }),
-                    new TextRun({ text: "Vertical through-wall slice showing the asymmetric Double-V weld geometry, ID/OD boundaries, Top Toe (TT) and Bottom Toe (BT) landmarks, and thermal crack propagation with ultrasonic tip echo." }),
-                  ],
-                }),
-              ]),
+                })
+              );
 
-          // Figure 4: Predictive Growth Forecast Curve Image
-          ...(payload.images?.forecastCurveImage && parseBase64Image(payload.images.forecastCurveImage)
-            ? [
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { before: 100, after: 60 },
-                  children: [
-                    new ImageRun({
-                      data: parseBase64Image(payload.images.forecastCurveImage)!,
-                      transformation: {
-                        width: 550,
-                        height: 240,
-                      },
-                      type: "png",
-                    }),
-                  ],
-                }),
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { after: 220 },
-                  children: [
-                    new TextRun({
-                      text: "Figure 4: Historical Defect Growth Extrapolation & Lifing Forecast Curve (OLS Regression with 80% Warning Limit)",
-                      italics: true,
-                      bold: true,
-                      size: 17,
-                      color: "334155",
-                    }),
-                  ],
-                }),
-              ]
-            : [
+              // 1. Polar Ring Map
+              if (polarImg && parseBase64Image(polarImg)) {
+                paras.push(
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { before: 80, after: 60 },
+                    children: [
+                      new ImageRun({
+                        data: parseBase64Image(polarImg)!,
+                        transformation: { width: 500, height: 350 },
+                        type: "png",
+                      }),
+                    ],
+                  }),
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 160 },
+                    children: [
+                      new TextRun({
+                        text: `Figure 4.${wIdx + 1}.1: 360° Circumferential Polar Ring Map — Seam ${wName} (~${circumferenceM} m Perimeter, Slots L1–L28)`,
+                        italics: true,
+                        bold: true,
+                        size: 16,
+                        color: "334155",
+                      }),
+                    ],
+                  })
+                );
+              }
+
+              // 2. Weld Width Plan View
+              if (planImg && parseBase64Image(planImg)) {
+                paras.push(
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { before: 100, after: 60 },
+                    children: [
+                      new ImageRun({
+                        data: parseBase64Image(planImg)!,
+                        transformation: { width: 550, height: 230 },
+                        type: "png",
+                      }),
+                    ],
+                  }),
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 160 },
+                    children: [
+                      new TextRun({
+                        text: `Figure 4.${wIdx + 1}.2: Weld Width with Indications Plan View (C-Scan) — Seam ${wName}`,
+                        italics: true,
+                        bold: true,
+                        size: 16,
+                        color: "334155",
+                      }),
+                    ],
+                  })
+                );
+              }
+
+              // 3. Historical vs Current Graph
+              if (histImg && parseBase64Image(histImg)) {
+                paras.push(
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { before: 100, after: 60 },
+                    children: [
+                      new ImageRun({
+                        data: parseBase64Image(histImg)!,
+                        transformation: { width: 550, height: 240 },
+                        type: "png",
+                      }),
+                    ],
+                  }),
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 160 },
+                    children: [
+                      new TextRun({
+                        text: `Figure 4.${wIdx + 1}.3: Multi-Campaign Historical vs. Current Inspection Comparison Graph — Seam ${wName}`,
+                        italics: true,
+                        bold: true,
+                        size: 16,
+                        color: "334155",
+                      }),
+                    ],
+                  })
+                );
+              }
+
+              // 4. Predictive Forecast Curve
+              if (forecastImg && parseBase64Image(forecastImg)) {
+                paras.push(
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { before: 100, after: 60 },
+                    children: [
+                      new ImageRun({
+                        data: parseBase64Image(forecastImg)!,
+                        transformation: { width: 550, height: 250 },
+                        type: "png",
+                      }),
+                    ],
+                  }),
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 200 },
+                    children: [
+                      new TextRun({
+                        text: `Figure 4.${wIdx + 1}.4: Predictive Growth Extrapolation & Lifing Forecast Curve — Seam ${wName}`,
+                        italics: true,
+                        bold: true,
+                        size: 16,
+                        color: "334155",
+                      }),
+                    ],
+                  })
+                );
+              }
+            });
+
+            if (paras.length === 0) {
+              paras.push(
                 new Paragraph({
                   bullet: { level: 0 },
-                  spacing: { after: 200 },
                   children: [
-                    new TextRun({ text: "Growth Extrapolation & Lifing Forecast Curve: ", bold: true }),
-                    new TextRun({ text: "Projects future through-wall depth using Ordinary Least Squares regression with statistical confidence fan envelopes and threshold alarms." }),
+                    new TextRun({ text: "PAUT Engineering Visualizations: ", bold: true }),
+                    new TextRun({ text: "Includes 360° Polar Ring Maps, Weld Plan Views, Multi-Campaign Graphs, and Predictive Lifing curves for all monitored seams." }),
                   ],
-                }),
-              ]),
+                })
+              );
+            }
+
+            return paras;
+          })(),
 
           // Section 5: Historical Defect Progression Table
           new Paragraph({

@@ -56,11 +56,20 @@ export interface ReportIndicationItem {
   campaignHistory: FlawCampaignRecord[];
 }
 
+export interface WeldImages {
+  weldName: string;
+  polarRingImage?: string;
+  weldPlanImage?: string;
+  historicalGraphImage?: string;
+  forecastCurveImage?: string;
+}
+
 export interface ReportImages {
   polarRingImage?: string;
   weldPlanImage?: string;
   bevelSScanImage?: string;
   forecastCurveImage?: string;
+  weldImages?: Record<string, WeldImages>;
 }
 
 export interface ReportPayload {

@@ -246,23 +246,49 @@ export default function ReportsPage() {
     }
   };
 
-  const handleExportDocx = async () => {
+  const [exportProgressText, setExportProgressText] = useState<string>("");
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [modalSelectedWelds, setModalSelectedWelds] = useState<string[]>([]);
+
+  const handleExportDocx = async (customWeldList?: string[]) => {
     if (!payload) return;
     setExportingDocx(true);
+    const weldsToProcess = customWeldList && customWeldList.length > 0 
+      ? customWeldList 
+      : (modalSelectedWelds.length > 0 ? modalSelectedWelds : reportWeldNames);
+
     try {
-      // Capture live SVGs as crisp PNG images
-      const [polarRingImg, weldPlanImg, bevelSScanImg, forecastCurveImg] = await Promise.all([
-        captureSvgAsPng("report-polar-ring-container"),
-        captureSvgAsPng("report-weld-plan-container"),
-        captureSvgAsPng("report-bevel-sscan-container"),
-        captureSvgAsPng("report-forecast-curve-container"),
-      ]);
+      setExportProgressText("Preparing high-resolution image rendering for all weld seams...");
+      const weldImages: Record<string, any> = {};
+
+      for (let i = 0; i < weldsToProcess.length; i++) {
+        const wName = weldsToProcess[i];
+        setExportProgressText(`Capturing inspection maps for Seam ${wName} (${i + 1} of ${weldsToProcess.length})...`);
+        
+        const [polarRingImg, weldPlanImg, histGraphImg, forecastCurveImg] = await Promise.all([
+          captureSvgAsPng(`report-polar-ring-${wName}`),
+          captureSvgAsPng(`report-weld-plan-${wName}`),
+          captureSvgAsPng(`report-historical-graph-${wName}`),
+          captureSvgAsPng(`report-forecast-curve-${wName}`),
+        ]);
+
+        weldImages[wName] = {
+          weldName: wName,
+          polarRingImage: polarRingImg || undefined,
+          weldPlanImage: weldPlanImg || undefined,
+          historicalGraphImage: histGraphImg || undefined,
+          forecastCurveImage: forecastCurveImg || undefined,
+        };
+      }
+
+      setExportProgressText("Packaging Microsoft Word (.docx) report with embedded graphics...");
+      const firstWeldImages = weldImages[weldsToProcess[0]] || {};
 
       const images = {
-        polarRingImage: polarRingImg || undefined,
-        weldPlanImage: weldPlanImg || undefined,
-        bevelSScanImage: bevelSScanImg || undefined,
-        forecastCurveImage: forecastCurveImg || undefined,
+        polarRingImage: firstWeldImages.polarRingImage,
+        weldPlanImage: firstWeldImages.weldPlanImage,
+        forecastCurveImage: firstWeldImages.forecastCurveImage,
+        weldImages,
       };
 
       const activePayloadForDocx: ReportPayload = {
@@ -273,7 +299,7 @@ export default function ReportsPage() {
           diameter: effectiveDiameter,
         },
         executiveSummary: effectiveExecutiveSummary || payload.executiveSummary,
-        indications: displayIndications,
+        indications: displayIndications.filter((ind) => weldsToProcess.includes(ind.weldName)),
       };
 
       const res = await fetch("/api/reports/docx", {
@@ -298,11 +324,13 @@ export default function ReportsPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+      setIsExportModalOpen(false);
     } catch (err) {
       console.error("DOCX download error:", err);
       alert("Could not generate Word document. Please try again.");
     } finally {
       setExportingDocx(false);
+      setExportProgressText("");
     }
   };
 
@@ -546,7 +574,7 @@ export default function ReportsPage() {
             )}
 
             <button
-              onClick={handleExportDocx}
+              onClick={() => setIsExportModalOpen(true)}
               disabled={exportingDocx}
               className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
             >
@@ -1200,6 +1228,167 @@ export default function ReportsPage() {
         </div>
 
       </div>
+
+      {/* Report Generation & Scope Selector Modal */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-5 text-xs text-slate-800">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-800 flex items-center justify-center font-bold">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Generate Engineering Report &amp; High-Res Images
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Configure drum and weld seams for Word (.docx) export
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => !exportingDocx && setIsExportModalOpen(false)}
+                disabled={exportingDocx}
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg px-2 cursor-pointer disabled:opacity-30"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scope 1: Target Coke Drum */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
+                Target Coke Drum:
+              </label>
+              <select
+                value={selectedDrumId || ""}
+                disabled={exportingDocx}
+                onChange={(e) => handleDrumChange(Number(e.target.value))}
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:ring-2 focus:ring-sky-500"
+              >
+                {availableDrums.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} ({vesselInfo.clientName})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Scope 2: Weld Seams Checklist */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
+                  Weld Seams to Include in Report:
+                </label>
+                <button
+                  type="button"
+                  disabled={exportingDocx}
+                  onClick={() => {
+                    if (modalSelectedWelds.length === reportWeldNames.length) {
+                      setModalSelectedWelds([reportWeldNames[0]]);
+                    } else {
+                      setModalSelectedWelds([...reportWeldNames]);
+                    }
+                  }}
+                  className="text-[11px] text-sky-700 font-semibold hover:underline cursor-pointer"
+                >
+                  {modalSelectedWelds.length === reportWeldNames.length ? "Deselect All" : "Select All Welds"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                {reportWeldNames.map((wName) => {
+                  const isChecked = modalSelectedWelds.length === 0 || modalSelectedWelds.includes(wName);
+                  const count = displayIndications.filter((i) => i.weldName === wName).length;
+                  return (
+                    <label
+                      key={wName}
+                      className={`flex items-center gap-2 p-2 rounded-lg border transition cursor-pointer ${
+                        isChecked ? "bg-white border-sky-300 shadow-2xs font-semibold text-slate-900" : "bg-slate-100/50 border-slate-200 text-slate-500"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={exportingDocx}
+                        checked={isChecked}
+                        onChange={(e) => {
+                          const currentList = modalSelectedWelds.length === 0 ? [...reportWeldNames] : [...modalSelectedWelds];
+                          if (e.target.checked) {
+                            if (!currentList.includes(wName)) currentList.push(wName);
+                          } else {
+                            const idx = currentList.indexOf(wName);
+                            if (idx >= 0) currentList.splice(idx, 1);
+                          }
+                          setModalSelectedWelds(currentList);
+                        }}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span>Weld Joint {wName}</span>
+                      <span className="ml-auto text-[10px] text-slate-400 font-mono">({count} flaws)</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Scope 3: High-Res Visual Graphics Included */}
+            <div className="space-y-1 bg-sky-50/70 p-3 rounded-xl border border-sky-200">
+              <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider block">
+                Embedded Engineering Graphics:
+              </span>
+              <ul className="text-[11px] text-slate-600 space-y-0.5 list-disc pl-4">
+                <li>360° Circular Polar Ring Maps (with Slots L1–L28)</li>
+                <li>Weld Width with Indications Plan Views (C-Scan)</li>
+                <li>Multi-Campaign Historical vs. Current Comparison Graphs</li>
+                <li>Predictive Lifing Forecast &amp; Remaining Operating Life Curves</li>
+              </ul>
+            </div>
+
+            {/* Live Progress Feedback during Export */}
+            {exportingDocx && (
+              <div className="p-3 bg-sky-100/80 rounded-xl border border-sky-300 space-y-2">
+                <div className="flex items-center gap-2 text-sky-900 font-bold">
+                  <div className="w-4 h-4 border-2 border-sky-700 border-t-transparent rounded-full animate-spin" />
+                  <span>{exportProgressText || "Generating Word Document with Images..."}</span>
+                </div>
+                <div className="w-full bg-sky-200 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-sky-600 h-1.5 rounded-full animate-pulse w-3/4" />
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                disabled={exportingDocx}
+                onClick={() => setIsExportModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={exportingDocx}
+                onClick={() => handleExportDocx(modalSelectedWelds.length > 0 ? modalSelectedWelds : reportWeldNames)}
+                className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg shadow-sm transition disabled:opacity-50 cursor-pointer"
+              >
+                {exportingDocx ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Generating Report...
+                  </>
+                ) : (
+                  <>
+                    <Download size={14} /> Generate &amp; Download DOCX
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
