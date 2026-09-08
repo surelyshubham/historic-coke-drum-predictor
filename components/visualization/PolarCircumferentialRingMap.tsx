@@ -558,8 +558,9 @@ export function PolarCircumferentialRingMap({
             {totalCircumferenceMm ? `${(totalCircumferenceMm / 1000).toFixed(1)} m Perimeter` : ""}
           </text>
 
-          {/* Render Indication Defect Patches Proportionally Depth-Wise along the Annular Ring */}
-          {indications.map((pi) => {
+          {/* Render Indication Defect Patches Proportionally Depth-Wise strictly confined within the Annular Ring */}
+          {indications.map((pi, idx) => {
+            const defectNum = idx + 1;
             const startMm = pi.circumferentialPosition;
             const flawLen = Math.max(120, pi.latestLength || 350);
             const endMm = startMm + flawLen;
@@ -580,50 +581,50 @@ export function PolarCircumferentialRingMap({
             const hasId = typeof depthId === "number" && depthId > 0;
             const hasOd = typeof depthOd === "number" && depthOd > 0;
 
-            const patches: Array<{ rInner: number; rOuter: number; color: string; key: string }> = [];
+            const patches: Array<{ centerRadius: number; thickness: number; color: string; key: string }> = [];
 
             if (surface === "BOTH" || (hasId && hasOd)) {
-              // Dual patches: OD patch protruding outward, ID patch protruding inward
+              // Dual patches: ID flaw initiating at innerRadius, OD flaw initiating at outerRadius
               const effId = hasId ? depthId! : flawDepth;
               const effOd = hasOd ? depthOd! : flawDepth;
 
-              const idRatio = Math.min(1, Math.max(0.08, effId / nominalWallThickness));
-              const idPx = Math.max(5, idRatio * wallThicknessPx);
+              const idRatio = Math.min(0.9, Math.max(0.08, effId / nominalWallThickness));
+              const idPx = Math.max(4, idRatio * wallThicknessPx);
               patches.push({
-                rInner: innerRadius - 7, // Inward protrusion into vessel ID (matches slot L14 in client report)
-                rOuter: innerRadius + idPx,
+                centerRadius: innerRadius + idPx / 2,
+                thickness: idPx,
                 color: getFlawDepthColor(effId),
                 key: "id-patch",
               });
 
-              const odRatio = Math.min(1, Math.max(0.08, effOd / nominalWallThickness));
-              const odPx = Math.max(5, odRatio * wallThicknessPx);
+              const odRatio = Math.min(0.9, Math.max(0.08, effOd / nominalWallThickness));
+              const odPx = Math.max(4, odRatio * wallThicknessPx);
               patches.push({
-                rInner: outerRadius - odPx,
-                rOuter: outerRadius + 7, // Outward protrusion beyond vessel OD (matches client report)
+                centerRadius: outerRadius - odPx / 2,
+                thickness: odPx,
                 color: getFlawDepthColor(effOd),
                 key: "od-patch",
               });
             } else if (surface === "OD") {
               const effDepth = hasOd ? depthOd! : flawDepth;
-              const depthRatio = Math.min(1, Math.max(0.08, effDepth / nominalWallThickness));
-              const penetrationPx = Math.max(5, depthRatio * wallThicknessPx);
+              const depthRatio = Math.min(0.95, Math.max(0.08, effDepth / nominalWallThickness));
+              const penetrationPx = Math.max(4, depthRatio * wallThicknessPx);
 
               patches.push({
-                rInner: outerRadius - penetrationPx,
-                rOuter: outerRadius + 7, // Outward protrusion on OD perimeter
+                centerRadius: outerRadius - penetrationPx / 2,
+                thickness: penetrationPx,
                 color: getFlawDepthColor(effDepth),
                 key: "od-patch",
               });
             } else {
-              // ID Flaw (default or explicit ID)
+              // ID Flaw (strictly confined between innerRadius and innerRadius + penetrationPx)
               const effDepth = hasId ? depthId! : flawDepth;
-              const depthRatio = Math.min(1, Math.max(0.08, effDepth / nominalWallThickness));
-              const penetrationPx = Math.max(5, depthRatio * wallThicknessPx);
+              const depthRatio = Math.min(0.95, Math.max(0.08, effDepth / nominalWallThickness));
+              const penetrationPx = Math.max(4, depthRatio * wallThicknessPx);
 
               patches.push({
-                rInner: innerRadius - 7, // Inward protrusion on ID perimeter
-                rOuter: innerRadius + penetrationPx,
+                centerRadius: innerRadius + penetrationPx / 2,
+                thickness: penetrationPx,
                 color: getFlawDepthColor(effDepth),
                 key: "id-patch",
               });
@@ -636,9 +637,7 @@ export function PolarCircumferentialRingMap({
                 className="cursor-pointer group"
               >
                 {patches.map((p) => {
-                  const midRadius = (p.rInner + p.rOuter) / 2;
-                  const thickness = Math.max(2, p.rOuter - p.rInner);
-                  const arcPath = describeAnticlockwiseArc(center, center, midRadius, startRad, endRad);
+                  const arcPath = describeAnticlockwiseArc(center, center, p.centerRadius, startRad, endRad);
                   
                   return (
                     <g key={p.key}>
@@ -648,18 +647,18 @@ export function PolarCircumferentialRingMap({
                           d={arcPath}
                           fill="none"
                           stroke={isSelected ? "#38bdf8" : "#ffffff"}
-                          strokeWidth={thickness + (isSelected ? 4 : 2)}
+                          strokeWidth={p.thickness + (isSelected ? 3.5 : 2)}
                           strokeOpacity="0.9"
                           strokeLinecap="round"
                         />
                       )}
-                      {/* Main proportional organic crack arc */}
+                      {/* Main proportional organic crack arc strictly bounded inside wall */}
                       <path
                         d={arcPath}
                         fill="none"
                         stroke={p.color}
                         strokeOpacity="0.95"
-                        strokeWidth={thickness}
+                        strokeWidth={p.thickness}
                         strokeLinecap="round"
                         className="transition-all hover:stroke-opacity-100 hover:brightness-110"
                       />
@@ -667,20 +666,53 @@ export function PolarCircumferentialRingMap({
                   );
                 })}
 
-                {/* Surface Identification Badge with Leader Line */}
+                {/* Permanent Defect Number Indicator Tag (e.g. #1, #2, #3, #4) */}
+                {(() => {
+                  const isOdFlaw = surface === "OD";
+                  const numRadius = isOdFlaw ? outerRadius + 14 : innerRadius - 14;
+                  const nx = center + numRadius * Math.cos(midRad);
+                  const ny = center + numRadius * Math.sin(midRad);
+                  return (
+                    <g className="pointer-events-none defect-num-badge">
+                      <circle
+                        cx={nx}
+                        cy={ny}
+                        r="8.5"
+                        fill="#0f172a"
+                        stroke="#ffffff"
+                        strokeWidth="1.5"
+                        className="shadow-xs"
+                      />
+                      <text
+                        x={nx}
+                        y={ny + 3}
+                        textAnchor="middle"
+                        fontSize="9"
+                        fontWeight="900"
+                        fill="#ffffff"
+                        fontFamily="sans-serif"
+                      >
+                        #{defectNum}
+                      </text>
+                    </g>
+                  );
+                })()}
+
+                {/* Surface Identification Badge with Leader Line on Hover/Selection */}
                 {(isSelected || isHovered) && (() => {
                   const isOdFlaw = surface === "OD";
-                  // Origin point of the leader line at the crack
+                  // Origin point of the leader line at the crack boundary
                   const originRadius = isOdFlaw ? outerRadius : innerRadius;
                   const ox = center + originRadius * Math.cos(midRad);
                   const oy = center + originRadius * Math.sin(midRad);
                   
                   // Label position pushed further away into empty space
-                  const labelRadius = isOdFlaw ? outerRadius + 45 : innerRadius - 45;
+                  const labelRadius = isOdFlaw ? outerRadius + 50 : innerRadius - 50;
                   const lx = center + labelRadius * Math.cos(midRad);
                   const ly = center + labelRadius * Math.sin(midRad);
                   
                   const color = isOdFlaw ? "#ea580c" : surface === "ID" ? "#dc2626" : "#7c3aed";
+                  const tagLabel = `Defect #${defectNum}: ${surface === "BOTH" ? "ID/OD" : surface} (${flawDepth.toFixed(1)}mm)`;
                   
                   return (
                     <g className="pointer-events-none flaw-surface-tag">
@@ -702,10 +734,10 @@ export function PolarCircumferentialRingMap({
                         fontWeight="900"
                         fill="white"
                         stroke="white"
-                        strokeWidth="3"
+                        strokeWidth="3.5"
                         fontFamily="sans-serif"
                       >
-                        {surface === "BOTH" ? "ID/OD" : surface}
+                        {tagLabel}
                       </text>
                       <text
                         x={lx}
@@ -716,7 +748,7 @@ export function PolarCircumferentialRingMap({
                         fill={color}
                         fontFamily="sans-serif"
                       >
-                        {surface === "BOTH" ? "ID/OD" : surface}
+                        {tagLabel}
                       </text>
                     </g>
                   );

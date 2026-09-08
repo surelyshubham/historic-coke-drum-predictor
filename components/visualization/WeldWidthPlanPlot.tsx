@@ -430,8 +430,9 @@ export function WeldWidthPlanPlot({
             Index Offset (mm)
           </text>
 
-          {/* Render Defect Indications as Authentic Depth-Coded Proportional Acoustic Streaks */}
-          {indications.map((pi) => {
+          {/* Render Defect Indications as Authentic Depth-Coded Proportional Acoustic Streaks with Defect Numbering */}
+          {indications.map((pi, idx) => {
+            const defectNum = idx + 1;
             const startX = pi.circumferentialPosition;
             const flawLen = Math.max(6, pi.latestLength || 15);
             const x1 = scaleX(startX);
@@ -440,6 +441,7 @@ export function WeldWidthPlanPlot({
             const yCenter = scaleY(offset);
 
             const isSelected = selectedFlawCode === pi.code;
+            const isHovered = hoverCursor?.hoveredFlaw?.code === pi.code;
             const effectiveDepth = Math.max(
               pi.latestDepth || 0,
               pi.latestDepthId || 0,
@@ -459,7 +461,7 @@ export function WeldWidthPlanPlot({
                 className="cursor-pointer group"
               >
                 {/* Indication Selection / Hover Glow Backing */}
-                {isSelected && (
+                {(isSelected || isHovered) && (
                   <line
                     x1={x1}
                     y1={yCenter}
@@ -468,7 +470,7 @@ export function WeldWidthPlanPlot({
                     stroke={depthGrade.strokeColor}
                     strokeWidth={streakThickness + 6}
                     strokeLinecap="round"
-                    strokeOpacity="0.4"
+                    strokeOpacity="0.45"
                     className="animate-pulse"
                   />
                 )}
@@ -497,7 +499,7 @@ export function WeldWidthPlanPlot({
                   strokeOpacity="0.75"
                 />
 
-                {/* Clean Flaw Code Label (Halo Text, No Blocky Box) */}
+                {/* Clean Defect Number & Position Label (Halo Text, No Blocky Box) */}
                 <g className="pointer-events-none">
                   <text
                     x={midX}
@@ -507,10 +509,10 @@ export function WeldWidthPlanPlot({
                     fontWeight="800"
                     fill="#ffffff"
                     stroke="#ffffff"
-                    strokeWidth="3"
+                    strokeWidth="3.5"
                     fontFamily="sans-serif"
                   >
-                    {flawCodeLabel}
+                    #{defectNum} ({flawCodeLabel})
                   </text>
                   <text
                     x={midX}
@@ -521,17 +523,27 @@ export function WeldWidthPlanPlot({
                     fill={depthGrade.darkColor}
                     fontFamily="sans-serif"
                   >
-                    {flawCodeLabel}
+                    #{defectNum} ({flawCodeLabel})
                   </text>
                 </g>
               </g>
             );
           })}
 
-          {/* Floating Tracking Cursor Crosshair & Measurement Halo */}
+          {/* Crisp, Fully Enclosed Bounding Box Frame */}
+          <rect
+            x={margin.left}
+            y={margin.top}
+            width={innerWidth}
+            height={innerHeight}
+            fill="none"
+            stroke="#475569"
+            strokeWidth="1.8"
+          />
+
+          {/* Floating Tracking Crosshair & Reticle */}
           {hoverCursor && (
             <g className="floating-cursor pointer-events-none">
-              {/* Vertical Crosshair Line */}
               <line
                 x1={hoverCursor.xPx}
                 y1={margin.top}
@@ -541,7 +553,6 @@ export function WeldWidthPlanPlot({
                 strokeWidth="1"
                 strokeDasharray="3 3"
               />
-              {/* Horizontal Crosshair Line */}
               <line
                 x1={margin.left}
                 y1={hoverCursor.yPx}
@@ -570,71 +581,198 @@ export function WeldWidthPlanPlot({
           )}
         </svg>
 
-        {/* Docked Inspector HUD Card — Always stays in opposite corner away from the cursor */}
+        {/* Floating Inspector Card with Interactive Double-V Cross-Section Bevel Preview */}
         {hoverCursor && (
           <div
-            className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
+            className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-xl shadow-2xl p-3 text-xs text-slate-800 transition-all duration-100 ${
               hoverCursor.xPx > width / 2 ? "left-4 top-4" : "right-4 top-4"
             }`}
             style={{
-              minWidth: "230px",
+              minWidth: hoverCursor.hoveredFlaw ? "310px" : "220px",
+              maxWidth: "340px",
             }}
           >
-            <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
-              <span className="font-bold text-slate-900">
-                {hoverCursor.hoveredFlaw ? hoverCursor.hoveredFlaw.code : "Weld Coordinates"}
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-100 text-sky-800">
-                {Math.abs(hoverCursor.percentOfWeldWidth)}% to {hoverCursor.indexOffsetMm >= 0 ? "Top Toe" : "Bottom Toe"}
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex justify-between">
-                <span className="text-slate-500">ScanLength:</span>
-                <span className="font-mono font-bold text-slate-900">{hoverCursor.scanLengthMm} mm</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Index Offset:</span>
-                <span className={`font-mono font-bold ${hoverCursor.indexOffsetMm === 0 ? "text-emerald-600" : "text-slate-900"}`}>
-                  {hoverCursor.indexOffsetMm > 0 ? `+${hoverCursor.indexOffsetMm}` : hoverCursor.indexOffsetMm} mm
+            {/* Header */}
+            <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200">
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-slate-900">
+                  {hoverCursor.hoveredFlaw
+                    ? `Defect #${indications.findIndex((i) => i.code === hoverCursor.hoveredFlaw?.code) + 1} (${hoverCursor.hoveredFlaw.code})`
+                    : "Weld Coordinates"}
                 </span>
               </div>
-
-              {hoverCursor.hoveredFlaw && (
-                <>
-                  <div className="pt-1 border-t border-slate-100 flex justify-between">
-                    <span className="text-slate-500">Flaw Length:</span>
-                    <span className="font-bold text-slate-900">{hoverCursor.hoveredFlaw.latestLength} mm</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Flaw Depth:</span>
-                    <span className="font-bold inline-flex items-center gap-1.5">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full inline-block"
-                        style={{
-                          backgroundColor:
-                            (hoverCursor.hoveredFlaw.latestDepth || 0) <= 3.0
-                              ? "#eab308"
-                              : (hoverCursor.hoveredFlaw.latestDepth || 0) <= 6.0
-                              ? "#f97316"
-                              : (hoverCursor.hoveredFlaw.latestDepth || 0) <= 10.0
-                              ? "#dc2626"
-                              : "#991b1b",
-                        }}
-                      />
-                      <span className="text-slate-900 font-mono">{hoverCursor.hoveredFlaw.latestDepth} mm</span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Annual Growth:</span>
-                    <span className="font-bold text-amber-600">+{hoverCursor.hoveredFlaw.growthRateYear} mm/yr</span>
-                  </div>
-                </>
-              )}
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800">
+                {Math.abs(hoverCursor.percentOfWeldWidth)}% to {hoverCursor.indexOffsetMm >= 0 ? "Top Toe (TT)" : "Bottom Toe (BT)"}
+              </span>
             </div>
+
+            {/* If Hovering over an Indication: Render Live Double-V S-Scan Profile Cross-Section */}
+            {hoverCursor.hoveredFlaw ? (() => {
+              const hf = hoverCursor.hoveredFlaw;
+              const effDepth = hf.latestDepth || 3.0;
+              const nomWall = 32.0;
+              const depthPct = Math.min(100, Math.round((effDepth / nomWall) * 100));
+              const remainingWall = Math.max(0, nomWall - effDepth);
+              const textPos = (hf.weldPosition || "").toUpperCase();
+              const isOD = textPos.includes("OD");
+              const isBT = textPos.includes("BT") || textPos.includes("BOTTOM");
+
+              // Mini Bevel SVG Dimensions
+              const bW = 280;
+              const bH = 110;
+              const pLeft = 25;
+              const pRight = 255;
+              const pTop = 22;
+              const pBottom = 92;
+              const pThick = pBottom - pTop;
+              const wCenter = (pLeft + pRight) / 2;
+              const rootY = pBottom - (11.5 / nomWall) * pThick;
+
+              const odTT = wCenter - (22 / 55) * ((pRight - pLeft) / 2);
+              const odBT = wCenter + (22 / 55) * ((pRight - pLeft) / 2);
+              const idTT = wCenter - (11 / 55) * ((pRight - pLeft) / 2);
+              const idBT = wCenter + (11 / 55) * ((pRight - pLeft) / 2);
+
+              // Crack Geometry
+              const crackDepthPx = (Math.min(nomWall, effDepth) / nomWall) * pThick;
+              const originX = isBT ? (isOD ? odBT : idBT) : (isOD ? odTT : idTT);
+              const originY = isOD ? pTop : pBottom;
+              const tipX = originX + (isBT ? -4 : 4);
+              const tipY = isOD ? pTop + crackDepthPx : pBottom - crackDepthPx;
+
+              return (
+                <div className="space-y-2">
+                  {/* Mini Double-V Bevel Profile SVG */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 flex justify-center">
+                    <svg viewBox={`0 0 ${bW} ${bH}`} className="w-full h-auto max-w-[280px]">
+                      {/* Plate Boundary */}
+                      <rect
+                        x={pLeft}
+                        y={pTop}
+                        width={pRight - pLeft}
+                        height={pThick}
+                        fill="#ffffff"
+                        stroke="#0f172a"
+                        strokeWidth="1.8"
+                      />
+
+                      {/* Stainless Clad Layer at ID Bottom */}
+                      <rect
+                        x={pLeft}
+                        y={pBottom - (3.0 / nomWall) * pThick}
+                        width={pRight - pLeft}
+                        height={(3.0 / nomWall) * pThick}
+                        fill="#38bdf8"
+                        fillOpacity="0.18"
+                        stroke="#0284c7"
+                        strokeWidth="0.8"
+                        strokeDasharray="2 2"
+                      />
+
+                      {/* Double-V Weld Metal Fill */}
+                      <polygon
+                        points={`${odTT},${pTop} ${odBT},${pTop} ${wCenter + 2},${rootY} ${wCenter - 2},${rootY}`}
+                        fill="#cbd5e1"
+                        stroke="#64748b"
+                        strokeWidth="0.8"
+                      />
+                      <polygon
+                        points={`${idTT},${pBottom} ${wCenter - 2},${rootY} ${wCenter + 2},${rootY} ${idBT},${pBottom}`}
+                        fill="#cbd5e1"
+                        stroke="#64748b"
+                        strokeWidth="0.8"
+                      />
+
+                      {/* Weld Centerline */}
+                      <line
+                        x1={wCenter}
+                        y1={pTop - 6}
+                        x2={wCenter}
+                        y2={pBottom + 6}
+                        stroke="#16a34a"
+                        strokeWidth="1"
+                        strokeDasharray="3 2"
+                      />
+
+                      {/* Surface Labels */}
+                      <text x={pLeft - 4} y={pTop + 4} textAnchor="end" fontSize="8" fontWeight="800" fill="#0f172a">OD</text>
+                      <text x={pLeft - 4} y={pBottom} textAnchor="end" fontSize="8" fontWeight="800" fill="#0f172a">ID</text>
+
+                      {/* Toe Labels */}
+                      <text x={odTT} y={pTop - 4} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">TT</text>
+                      <text x={odBT} y={pTop - 4} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">BT</text>
+                      <text x={idTT} y={pBottom + 8} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">TT</text>
+                      <text x={idBT} y={pBottom + 8} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">BT</text>
+
+                      {/* Crack Propagation Path */}
+                      <line
+                        x1={originX}
+                        y1={originY}
+                        x2={tipX}
+                        y2={tipY}
+                        stroke={isOD ? "#ea580c" : "#dc2626"}
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                      />
+                      <circle cx={originX} cy={originY} r="2.5" fill={isOD ? "#c2410c" : "#b91c1c"} />
+
+                      {/* Ultrasonic Tip Heatmap Echo */}
+                      <circle cx={tipX} cy={tipY} r="6" fill="#f87171" fillOpacity="0.4" />
+                      <circle cx={tipX} cy={tipY} r="2" fill="#991b1b" />
+
+                      {/* In-situ Depth Callout */}
+                      <text
+                        x={tipX + (tipX > wCenter ? -8 : 8)}
+                        y={tipY + (isOD ? 8 : -4)}
+                        textAnchor={tipX > wCenter ? "end" : "start"}
+                        fontSize="8.5"
+                        fontWeight="bold"
+                        fill={isOD ? "#ea580c" : "#dc2626"}
+                      >
+                        {isOD ? "OD" : "ID"}: {effDepth.toFixed(1)}mm ({depthPct}%)
+                      </text>
+                    </svg>
+                  </div>
+
+                  {/* Quantitative Inspection Summary */}
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-100 text-[11px]">
+                    <div>
+                      <span className="text-slate-500">Scan Pos:</span>
+                      <span className="font-bold text-slate-900 ml-1">{hf.circumferentialPosition} mm</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Flaw Len:</span>
+                      <span className="font-bold text-slate-900 ml-1">{hf.latestLength} mm</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Depth:</span>
+                      <span className="font-bold text-red-600 ml-1">{effDepth.toFixed(1)} mm ({depthPct}%)</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Sound Wall:</span>
+                      <span className="font-bold text-emerald-700 ml-1">{remainingWall.toFixed(1)} mm</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ScanLength:</span>
+                  <span className="font-mono font-bold text-slate-900">{hoverCursor.scanLengthMm} mm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Index Offset:</span>
+                  <span className={`font-mono font-bold ${hoverCursor.indexOffsetMm === 0 ? "text-emerald-600" : "text-slate-900"}`}>
+                    {hoverCursor.indexOffsetMm > 0 ? `+${hoverCursor.indexOffsetMm}` : hoverCursor.indexOffsetMm} mm
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 italic pt-1">
+                  Hover directly over any colored flaw streak to view its through-thickness Double-V cross-section
+                </p>
+              </div>
+            )}
           </div>
-        )}
       </div>
 
       {/* Depth Severity Color Scale & Weld Guidelines Legend */}

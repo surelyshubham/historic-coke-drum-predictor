@@ -926,46 +926,13 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* Section 4: Bevel Ultrasonic S-Scan Cross-Section Profile */}
-        {sections.bevelSScan && selectedTrackedIndication && (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                4. Asymmetric Double-V Weld Cross-Section Profile
-              </h3>
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className="text-slate-500">Active Indication:</span>
-                <select
-                  value={selectedIndicationId || ""}
-                  onChange={(e) => setSelectedIndicationId(Number(e.target.value))}
-                  className="font-bold text-sky-800 bg-slate-50 border border-slate-300 rounded px-2 py-0.5"
-                >
-                  {displayIndications.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.code} ({i.currentLength} mm × {i.currentDepth} mm)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div id="report-bevel-sscan-container">
-              <WeldBevelSScanProfile
-                indication={selectedTrackedIndication}
-                nominalWallThickness={effectiveNominalThickness}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Section 5: Flaw Growth Extrapolation & Lifing Curve */}
+        {/* Section 4: Flaw Growth Extrapolation & Lifing Curve */}
         {sections.predictiveForecast && selectedIndication && (
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
               <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                5. Predictive Growth Extrapolation &amp; Remaining Operating Life
+                4. Predictive Growth Extrapolation &amp; Remaining Operating Life
               </h3>
               <span className="text-[11px] text-slate-500">
                 Flaw {selectedIndication.code} | Rate: <strong>+{selectedIndication.growthRateYear} mm/yr</strong>
@@ -983,13 +950,13 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* Section 6: Comprehensive Historical Defect Progression Table */}
+        {/* Section 5: Comprehensive Historical Defect Progression Table */}
         {sections.progressionTable && (
           <div className="space-y-3 pt-2">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 pb-1.5">
               <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                6. Comprehensive Historical Defect Progression Table
+                5. Comprehensive Historical Defect Progression Table
               </h3>
 
               {/* Quick Search */}
@@ -1009,6 +976,7 @@ export default function ReportsPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-bold">
+                    <th className="p-2.5">#</th>
                     <th className="p-2.5">Flaw ID</th>
                     <th className="p-2.5">Weld</th>
                     <th className="p-2.5">Circ. Pos</th>
@@ -1024,7 +992,7 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredTableIndications.map((ind) => {
+                  {filteredTableIndications.map((ind, idx) => {
                     const isSelected = ind.id === selectedIndicationId;
                     const tierBadgeColor =
                       ind.riskTier === "CRITICAL"
@@ -1051,6 +1019,7 @@ export default function ReportsPage() {
                           isSelected ? "bg-sky-50 font-medium" : ""
                         }`}
                       >
+                        <td className="p-2.5 font-bold text-sky-800">#{idx + 1}</td>
                         <td className="p-2.5 font-bold text-slate-900">{ind.code}</td>
                         <td className="p-2.5 text-slate-700">{ind.weldName}</td>
                         <td className="p-2.5 font-mono text-slate-700">{ind.circumferentialPosition} mm</td>
@@ -1085,7 +1054,7 @@ export default function ReportsPage() {
                   })}
                   {filteredTableIndications.length === 0 && (
                     <tr>
-                      <td colSpan={12} className="p-4 text-center text-slate-400 italic">
+                      <td colSpan={13} className="p-4 text-center text-slate-400 italic">
                         No indications matching filter criteria.
                       </td>
                     </tr>
@@ -1094,15 +1063,15 @@ export default function ReportsPage() {
               </table>
             </div>
             <p className="text-[11px] text-slate-400 italic print:hidden">
-              * Click any row in the table to synchronize and inspect its cross-sectional Bevel S-Scan and Predictive Growth Curve above.
+              * Hover over any indication in the Weld Width Plan View or Polar Ring Map above to view its live through-thickness Double-V cross section.
             </p>
           </div>
         )}
 
-        {/* Section 7: Engineering Recommendations & Turnaround Action Plan */}
+        {/* Section 6: Engineering Recommendations & Turnaround Action Plan */}
         <div className="pt-4 border-t-2 border-slate-200 space-y-2 text-xs">
           <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-            7. Turnaround Assessment Conclusions &amp; Action Plan
+            6. Turnaround Assessment Conclusions &amp; Action Plan
           </h3>
           <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed">
             <li>
