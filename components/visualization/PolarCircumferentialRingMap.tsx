@@ -127,12 +127,12 @@ export function PolarCircumferentialRingMap({
       const endDeg = (idx + 1) * slotSpanDeg;
       const midDeg = (startDeg + endDeg) / 2;
 
-      // Divider tick mark at start of each slot
+      // Divider tick mark at start of each slot (only drawn inside the clear area, not blocking the shell wall)
       const divAngleRad = degToAngleRad(startDeg);
-      const tickX1 = center + innerRadius * Math.cos(divAngleRad);
-      const tickY1 = center + innerRadius * Math.sin(divAngleRad);
-      const tickX2 = center + outerRadius * Math.cos(divAngleRad);
-      const tickY2 = center + outerRadius * Math.sin(divAngleRad);
+      const tickX1 = center + (innerRadius - 15) * Math.cos(divAngleRad);
+      const tickY1 = center + (innerRadius - 15) * Math.sin(divAngleRad);
+      const tickX2 = center + (innerRadius - 2) * Math.cos(divAngleRad);
+      const tickY2 = center + (innerRadius - 2) * Math.sin(divAngleRad);
 
       // Slot label center coordinates
       const midAngleRad = degToAngleRad(midDeg);
@@ -370,18 +370,6 @@ export function PolarCircumferentialRingMap({
             fill="none"
             stroke="#0f172a"
             strokeWidth="2"
-          />
-
-          {/* Annular Wall Midline Guideline */}
-          <circle
-            cx={center}
-            cy={center}
-            r={midRadius}
-            fill="none"
-            stroke="#ffffff"
-            strokeWidth="1"
-            strokeDasharray="2 2"
-            strokeOpacity="0.4"
           />
 
           {/* 28 Longitudinal Slot Dividers & Inner L1-L28 Slot Badges */}
@@ -648,56 +636,84 @@ export function PolarCircumferentialRingMap({
                 className="cursor-pointer group"
               >
                 {patches.map((p) => {
-                  const sectorPath = describeAnnularSector(center, center, p.rInner, p.rOuter, startRad, endRad);
+                  const midRadius = (p.rInner + p.rOuter) / 2;
+                  const thickness = Math.max(2, p.rOuter - p.rInner);
+                  const arcPath = describeAnticlockwiseArc(center, center, midRadius, startRad, endRad);
+                  
                   return (
                     <g key={p.key}>
-                      <path
-                        d={sectorPath}
-                        fill={p.color}
-                        fillOpacity="0.92"
-                        stroke={isSelected ? "#0284c7" : "#0f172a"}
-                        strokeWidth={isSelected ? 2.5 : 1}
-                        className="transition-all hover:fill-opacity-100 hover:brightness-110"
-                      />
+                      {/* Highlight outline (drawn under the main arc so it acts as a glow/border) */}
                       {(isSelected || isHovered) && (
                         <path
-                          d={sectorPath}
+                          d={arcPath}
                           fill="none"
                           stroke={isSelected ? "#38bdf8" : "#ffffff"}
-                          strokeWidth={isSelected ? 3.5 : 2}
+                          strokeWidth={thickness + (isSelected ? 4 : 2)}
                           strokeOpacity="0.9"
+                          strokeLinecap="round"
                         />
                       )}
+                      {/* Main proportional organic crack arc */}
+                      <path
+                        d={arcPath}
+                        fill="none"
+                        stroke={p.color}
+                        strokeOpacity="0.95"
+                        strokeWidth={thickness}
+                        strokeLinecap="round"
+                        className="transition-all hover:stroke-opacity-100 hover:brightness-110"
+                      />
                     </g>
                   );
                 })}
 
-                {/* Surface Identification Badge [ID] or [OD] attached to the Flaw Arc */}
+                {/* Surface Identification Badge with Leader Line */}
                 {(isSelected || isHovered) && (() => {
                   const isOdFlaw = surface === "OD";
-                  const labelRadius = isOdFlaw ? outerRadius + 22 : innerRadius - 22;
+                  // Origin point of the leader line at the crack
+                  const originRadius = isOdFlaw ? outerRadius : innerRadius;
+                  const ox = center + originRadius * Math.cos(midRad);
+                  const oy = center + originRadius * Math.sin(midRad);
+                  
+                  // Label position pushed further away into empty space
+                  const labelRadius = isOdFlaw ? outerRadius + 45 : innerRadius - 45;
                   const lx = center + labelRadius * Math.cos(midRad);
                   const ly = center + labelRadius * Math.sin(midRad);
+                  
+                  const color = isOdFlaw ? "#ea580c" : surface === "ID" ? "#dc2626" : "#7c3aed";
+                  
                   return (
                     <g className="pointer-events-none flaw-surface-tag">
-                      <rect
-                        x={lx - 16}
-                        y={ly - 8}
-                        width="32"
-                        height="16"
-                        rx="3"
-                        fill={isOdFlaw ? "#ea580c" : surface === "ID" ? "#dc2626" : "#7c3aed"}
-                        stroke="#ffffff"
+                      <line
+                        x1={ox}
+                        y1={oy}
+                        x2={lx}
+                        y2={ly}
+                        stroke={color}
                         strokeWidth="1.2"
-                        className="shadow-xs"
+                        strokeDasharray="2 2"
                       />
+                      {/* Halo for readability */}
                       <text
                         x={lx}
                         y={ly + 4}
                         textAnchor="middle"
-                        fontSize="9"
+                        fontSize="11"
                         fontWeight="900"
-                        fill="#ffffff"
+                        fill="white"
+                        stroke="white"
+                        strokeWidth="3"
+                        fontFamily="sans-serif"
+                      >
+                        {surface === "BOTH" ? "ID/OD" : surface}
+                      </text>
+                      <text
+                        x={lx}
+                        y={ly + 4}
+                        textAnchor="middle"
+                        fontSize="11"
+                        fontWeight="900"
+                        fill={color}
                         fontFamily="sans-serif"
                       >
                         {surface === "BOTH" ? "ID/OD" : surface}
