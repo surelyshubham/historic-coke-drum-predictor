@@ -9,6 +9,7 @@ import { PolarCircumferentialRingMap } from "@/components/visualization/PolarCir
 import { WeldWidthPlanPlot } from "@/components/visualization/WeldWidthPlanPlot";
 import { WeldBevelSScanProfile } from "@/components/visualization/WeldBevelSScanProfile";
 import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
+import { WeldHistoricalVsCurrentGraph } from "@/components/visualization/WeldHistoricalVsCurrentGraph";
 import { 
   FileText, 
   Download, 
@@ -429,6 +430,20 @@ export default function ReportsPage() {
       },
     ];
   }, [selectedIndication]);
+
+  const reportWeldNames = useMemo<string[]>(() => {
+    if (!payload) return [];
+    if (selectedWeldId) {
+      const matched = payload.availableWelds.find((w) => w.id === selectedWeldId);
+      return matched ? [matched.name] : [];
+    }
+    const set = new Set<string>();
+    displayIndications.forEach((i) => {
+      if (i.weldName) set.add(i.weldName);
+    });
+    if (set.size > 0) return Array.from(set);
+    return payload.availableWelds.map((w) => w.name);
+  }, [payload, selectedWeldId, displayIndications]);
 
   const filteredTableIndications = useMemo(() => {
     if (!payload) return [];
@@ -874,199 +889,291 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* Section 2: 360° Circular Polar Ring Map */}
-        {sections.polarRingMap && (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                2. 360° Circumferential Polar Ring Map (Shell Cross-Section)
+        {/* Section 2: Detailed Per-Weld Seam Engineering Assessment */}
+        <div className="space-y-12 pt-4">
+          <div className="border-b-2 border-slate-900 pb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-600"></span>
+                2. Detailed Weld Seam Inspections &amp; Lifing Assessments
               </h3>
-              <span className="text-[11px] text-slate-500">North 0° • Anticlockwise Scan • Slots L1–L28 (~{circumferenceM} m Perimeter)</span>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Individualized 360° Ring Maps, Weld Plan Views, Historical vs. Current Comparisons, and Remaining Operating Life Curves per weld joint.
+              </p>
             </div>
-
-            <div id="report-polar-ring-container">
-              <PolarCircumferentialRingMap
-                indications={trackedIndications}
-                selectedFlawCode={selectedIndication?.code}
-                onSelectFlaw={(pi) => {
-                  const found = displayIndications.find((i) => i.code === pi.code);
-                  if (found) setSelectedIndicationId(found.id);
-                }}
-                drumName={vesselInfo.name}
-                weldName={activeWeldName}
-                totalCircumferenceMm={circumferenceMm}
-                nominalWallThickness={effectiveNominalThickness}
-              />
-            </div>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-sky-50 text-sky-800 border border-sky-200">
+              {reportWeldNames.length} Weld Seam{reportWeldNames.length > 1 ? "s" : ""} in Scope
+            </span>
           </div>
-        )}
 
-        {/* Section 3: Weld Width Plan Projection */}
-        {sections.weldWidthPlan && (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                3. Weld Width with Indications Plan View (Index Offset vs ScanLength)
-              </h3>
-              <span className="text-[11px] text-slate-500">Top-Down C-Scan Projection relative to Centerline &amp; HAZ Limits</span>
-            </div>
+          {reportWeldNames.map((weldName, weldIdx) => {
+            const weldIndications = displayIndications.filter((i) => i.weldName === weldName);
+            const weldTracked = trackedIndications.filter((t) => t.weldName === weldName);
+            const weldSelectedInd =
+              weldIndications.find((i) => i.id === selectedIndicationId) || weldIndications[0] || null;
 
-            <div id="report-weld-plan-container">
-              <WeldWidthPlanPlot
-                indications={trackedIndications}
-                selectedFlawCode={selectedIndication?.code}
-                onSelectFlaw={(pi) => {
-                  const found = displayIndications.find((i) => i.code === pi.code);
-                  if (found) setSelectedIndicationId(found.id);
-                }}
-              />
-            </div>
-          </div>
-        )}
+            const weldForecastMeasurements = weldSelectedInd
+              ? weldSelectedInd.campaignHistory.length > 0
+                ? weldSelectedInd.campaignHistory.map((h) => ({
+                    date: new Date(h.inspectionDate),
+                    campaignName: h.campaignName,
+                    depth: h.depth,
+                    length: h.length,
+                    circumferentialPosition: weldSelectedInd.circumferentialPosition,
+                  }))
+                : [
+                    {
+                      date: new Date(),
+                      campaignName: "Current",
+                      depth: weldSelectedInd.currentDepth,
+                      length: weldSelectedInd.currentLength,
+                      circumferentialPosition: weldSelectedInd.circumferentialPosition,
+                    },
+                  ]
+              : [];
 
-        {/* Section 4: Flaw Growth Extrapolation & Lifing Curve */}
-        {sections.predictiveForecast && selectedIndication && (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                4. Predictive Growth Extrapolation &amp; Remaining Operating Life
-              </h3>
-              <span className="text-[11px] text-slate-500">
-                Flaw {selectedIndication.code} | Rate: <strong>+{selectedIndication.growthRateYear} mm/yr</strong>
-              </span>
-            </div>
+            const criticalOnWeld = weldIndications.filter((i) => i.riskTier === "CRITICAL").length;
+            const highOnWeld = weldIndications.filter((i) => i.riskTier === "HIGH").length;
+            const maxWeldDepth = weldIndications.length > 0 ? Math.max(...weldIndications.map((i) => i.currentDepth)) : 0;
 
-            <div id="report-forecast-curve-container" className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs">
-              <PredictiveForecastChart
-                measurements={forecastMeasurements}
-                flawCode={selectedIndication.code}
-                locationInfo={`Weld Seam ${selectedIndication.weldName} (${selectedIndication.circumferentialPosition} mm)`}
-                nominalThickness={effectiveNominalThickness}
-              />
-            </div>
-          </div>
-        )}
+            return (
+              <div
+                key={weldName}
+                className="bg-slate-50/40 border border-slate-300 rounded-2xl p-5 sm:p-7 space-y-7 shadow-xs"
+              >
+                {/* Weld Seam Header Banner */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 bg-white p-4 rounded-xl border">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center shadow-xs">
+                      {weldName}
+                    </div>
+                    <div>
+                      <h4 className="text-base font-extrabold text-slate-900">
+                        Weld Joint: {weldName} (Circumferential Seam {weldName})
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Vessel: {vesselInfo.name} • {weldIndications.length} Detected Indication{weldIndications.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                  </div>
 
-        {/* Section 5: Comprehensive Historical Defect Progression Table */}
-        {sections.progressionTable && (
-          <div className="space-y-3 pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 pb-1.5">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                5. Comprehensive Historical Defect Progression Table
-              </h3>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold border border-slate-200">
+                      Max Depth: <strong className="text-slate-900">{maxWeldDepth.toFixed(1)} mm</strong> ({((maxWeldDepth / effectiveNominalThickness) * 100).toFixed(0)}%)
+                    </span>
+                    {criticalOnWeld > 0 ? (
+                      <span className="px-2.5 py-1 rounded-lg bg-red-100 text-red-800 font-bold border border-red-200">
+                        {criticalOnWeld} Critical Risk (&gt;90%)
+                      </span>
+                    ) : highOnWeld > 0 ? (
+                      <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                        {highOnWeld} High Risk (&gt;80%)
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                        Safe Wall Margins
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-              {/* Quick Search */}
-              <div className="print:hidden relative w-64">
-                <Search size={13} className="absolute left-2.5 top-2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Filter flaw, weld, tier..."
-                  value={searchFilter}
-                  onChange={(e) => setSearchFilter(e.target.value)}
-                  className="w-full pl-8 pr-2.5 py-1 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500 bg-slate-50"
-                />
+                {/* 2.X.1 360° Polar Circumferential Ring Map for this weld */}
+                {sections.polarRingMap && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                        2.{weldIdx + 1}.1 360° Circumferential Polar Ring Map — Seam {weldName}
+                      </h5>
+                      <span className="text-[11px] text-slate-500">North 0° • Slots L1–L28 • Side-by-Side Defect Table</span>
+                    </div>
+
+                    <div id={`report-polar-ring-${weldName}`}>
+                      <PolarCircumferentialRingMap
+                        indications={weldTracked}
+                        selectedFlawCode={weldSelectedInd?.code}
+                        onSelectFlaw={(pi) => {
+                          const found = displayIndications.find((i) => i.code === pi.code);
+                          if (found) setSelectedIndicationId(found.id);
+                        }}
+                        drumName={vesselInfo.name}
+                        weldName={weldName}
+                        totalCircumferenceMm={circumferenceMm}
+                        nominalWallThickness={effectiveNominalThickness}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 2.X.2 Weld Width Plan View with Side-by-Side Defect Table */}
+                {sections.weldWidthPlan && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                        2.{weldIdx + 1}.2 Weld Width with Indications Plan View — Seam {weldName}
+                      </h5>
+                      <span className="text-[11px] text-slate-500">Solid filled indication bounding boxes • Side-by-Side Table</span>
+                    </div>
+
+                    <div id={`report-weld-plan-${weldName}`}>
+                      <WeldWidthPlanPlot
+                        indications={weldTracked}
+                        selectedFlawCode={weldSelectedInd?.code}
+                        onSelectFlaw={(pi) => {
+                          const found = displayIndications.find((i) => i.code === pi.code);
+                          if (found) setSelectedIndicationId(found.id);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 2.X.3 Historical vs. Current Inspection Comparison Graph */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                    <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                      2.{weldIdx + 1}.3 Historical vs. Current Inspection Comparison — Seam {weldName}
+                    </h5>
+                    <span className="text-[11px] text-slate-500">Campaign progression &amp; Net Growth Deltas</span>
+                  </div>
+
+                  <WeldHistoricalVsCurrentGraph
+                    indications={weldIndications}
+                    campaignNames={payload.allCampaignNames || []}
+                    weldName={weldName}
+                    nominalWallThickness={effectiveNominalThickness}
+                    selectedFlawCode={weldSelectedInd?.code}
+                    onSelectFlaw={(code) => {
+                      const found = displayIndications.find((i) => i.code === code);
+                      if (found) setSelectedIndicationId(found.id);
+                    }}
+                  />
+                </div>
+
+                {/* 2.X.4 Predictive Growth Extrapolation & Lifing Curve for Seam */}
+                {sections.predictiveForecast && weldSelectedInd && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                        2.{weldIdx + 1}.4 Predictive Growth &amp; Remaining Life Forecast — Seam {weldName} (Flaw {weldSelectedInd.code})
+                      </h5>
+                      <span className="text-[11px] text-slate-500">
+                        Rate: <strong>+{weldSelectedInd.growthRateYear} mm/yr</strong> • Manual Override Enabled
+                      </span>
+                    </div>
+
+                    <div id={`report-forecast-curve-${weldName}`} className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs">
+                      <PredictiveForecastChart
+                        measurements={weldForecastMeasurements}
+                        flawCode={weldSelectedInd.code}
+                        locationInfo={`Weld Seam ${weldName} (${weldSelectedInd.circumferentialPosition} mm)`}
+                        nominalThickness={effectiveNominalThickness}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 2.X.5 Weld Specific Data Table */}
+                {sections.progressionTable && (
+                  <div className="space-y-3 pt-1">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                        2.{weldIdx + 1}.5 Defect Progression Table — Seam {weldName}
+                      </h5>
+                      <span className="text-[11px] text-slate-500">{weldIndications.length} Indications</span>
+                    </div>
+
+                    <div className="border border-slate-200 rounded-xl overflow-x-auto shadow-2xs bg-white">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-bold">
+                            <th className="p-2.5">#</th>
+                            <th className="p-2.5">Flaw ID</th>
+                            <th className="p-2.5">Circ. Pos</th>
+                            <th className="p-2.5">Length</th>
+                            <th className="p-2.5">Depth</th>
+                            <th className="p-2.5">Depth (ID / OD)</th>
+                            <th className="p-2.5">% Wall</th>
+                            <th className="p-2.5">Sound Wall</th>
+                            <th className="p-2.5">Growth Rate</th>
+                            <th className="p-2.5">80% Warning</th>
+                            <th className="p-2.5">Days Rem.</th>
+                            <th className="p-2.5 text-center">Risk Tier</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {weldIndications.map((ind, idx) => {
+                            const isSelected = ind.id === selectedIndicationId;
+                            const tierBadgeColor =
+                              ind.riskTier === "CRITICAL"
+                                ? "bg-red-100 text-red-800 border-red-200"
+                                : ind.riskTier === "HIGH"
+                                ? "bg-amber-100 text-amber-800 border-amber-200"
+                                : ind.riskTier === "MODERATE"
+                                ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                : "bg-emerald-100 text-emerald-800 border-emerald-200";
+
+                            const soundLigament = Math.max(
+                              0,
+                              effectiveNominalThickness -
+                                ((ind.currentDepthId || 0) + (ind.currentDepthOd || 0) > 0
+                                  ? (ind.currentDepthId || 0) + (ind.currentDepthOd || 0)
+                                  : ind.currentDepth)
+                            ).toFixed(1);
+
+                            return (
+                              <tr
+                                key={ind.id}
+                                onClick={() => setSelectedIndicationId(ind.id)}
+                                className={`cursor-pointer transition hover:bg-sky-50/60 ${
+                                  isSelected ? "bg-sky-50 font-medium" : ""
+                                }`}
+                              >
+                                <td className="p-2.5 font-bold text-sky-800">#{idx + 1}</td>
+                                <td className="p-2.5 font-bold text-slate-900">{ind.code}</td>
+                                <td className="p-2.5 font-mono text-slate-700">{ind.circumferentialPosition} mm</td>
+                                <td className="p-2.5 font-mono text-slate-800">{ind.currentLength} mm</td>
+                                <td className="p-2.5 font-mono font-bold text-sky-800">{ind.currentDepth} mm</td>
+                                <td className="p-2.5 font-mono text-[11px] text-slate-600">
+                                  {ind.currentDepthId !== null && ind.currentDepthId !== undefined ? `ID: ${ind.currentDepthId}mm` : ""}
+                                  {ind.currentDepthId && ind.currentDepthOd ? " • " : ""}
+                                  {ind.currentDepthOd !== null && ind.currentDepthOd !== undefined ? `OD: ${ind.currentDepthOd}mm` : ""}
+                                  {!ind.currentDepthId && !ind.currentDepthOd ? "—" : ""}
+                                </td>
+                                <td className="p-2.5 font-mono text-slate-700">{ind.depthPercentOfWall}%</td>
+                                <td className="p-2.5 font-mono font-bold text-emerald-700">{soundLigament} mm</td>
+                                <td className="p-2.5 font-mono font-bold text-amber-700">+{ind.growthRateYear} mm/yr</td>
+                                <td className="p-2.5 text-slate-700">{ind.warningDate || "Safe"}</td>
+                                <td className="p-2.5 font-mono">
+                                  {ind.warningDaysRemaining !== null ? (
+                                    <span className={ind.warningDaysRemaining <= 180 ? "text-red-600 font-bold" : "text-slate-700"}>
+                                      {ind.warningDaysRemaining} d
+                                    </span>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td className="p-2.5 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${tierBadgeColor}`}>
+                                    {ind.riskTier}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-
-            <div className="border border-slate-200 rounded-xl overflow-x-auto shadow-2xs">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-bold">
-                    <th className="p-2.5">#</th>
-                    <th className="p-2.5">Flaw ID</th>
-                    <th className="p-2.5">Weld</th>
-                    <th className="p-2.5">Circ. Pos</th>
-                    <th className="p-2.5">Length</th>
-                    <th className="p-2.5">Depth</th>
-                    <th className="p-2.5">Depth (ID / OD)</th>
-                    <th className="p-2.5">% Wall</th>
-                    <th className="p-2.5">Sound Wall</th>
-                    <th className="p-2.5">Growth Rate</th>
-                    <th className="p-2.5">80% Warning</th>
-                    <th className="p-2.5">Days Rem.</th>
-                    <th className="p-2.5 text-center">Risk Tier</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredTableIndications.map((ind, idx) => {
-                    const isSelected = ind.id === selectedIndicationId;
-                    const tierBadgeColor =
-                      ind.riskTier === "CRITICAL"
-                        ? "bg-red-100 text-red-800 border-red-200"
-                        : ind.riskTier === "HIGH"
-                        ? "bg-amber-100 text-amber-800 border-amber-200"
-                        : ind.riskTier === "MODERATE"
-                        ? "bg-yellow-100 text-yellow-800 border-yellow-200"
-                        : "bg-emerald-100 text-emerald-800 border-emerald-200";
-
-                    const soundLigament = Math.max(
-                      0,
-                      effectiveNominalThickness -
-                        ((ind.currentDepthId || 0) + (ind.currentDepthOd || 0) > 0
-                          ? (ind.currentDepthId || 0) + (ind.currentDepthOd || 0)
-                          : ind.currentDepth)
-                    ).toFixed(1);
-
-                    return (
-                      <tr
-                        key={ind.id}
-                        onClick={() => setSelectedIndicationId(ind.id)}
-                        className={`cursor-pointer transition hover:bg-sky-50/60 ${
-                          isSelected ? "bg-sky-50 font-medium" : ""
-                        }`}
-                      >
-                        <td className="p-2.5 font-bold text-sky-800">#{idx + 1}</td>
-                        <td className="p-2.5 font-bold text-slate-900">{ind.code}</td>
-                        <td className="p-2.5 text-slate-700">{ind.weldName}</td>
-                        <td className="p-2.5 font-mono text-slate-700">{ind.circumferentialPosition} mm</td>
-                        <td className="p-2.5 font-mono text-slate-800">{ind.currentLength} mm</td>
-                        <td className="p-2.5 font-mono font-bold text-sky-800">{ind.currentDepth} mm</td>
-                        <td className="p-2.5 font-mono text-[11px] text-slate-600">
-                          {ind.currentDepthId !== null && ind.currentDepthId !== undefined ? `ID: ${ind.currentDepthId}mm` : ""}
-                          {ind.currentDepthId && ind.currentDepthOd ? " • " : ""}
-                          {ind.currentDepthOd !== null && ind.currentDepthOd !== undefined ? `OD: ${ind.currentDepthOd}mm` : ""}
-                          {!ind.currentDepthId && !ind.currentDepthOd ? "—" : ""}
-                        </td>
-                        <td className="p-2.5 font-mono text-slate-700">{ind.depthPercentOfWall}%</td>
-                        <td className="p-2.5 font-mono font-bold text-emerald-700">{soundLigament} mm</td>
-                        <td className="p-2.5 font-mono font-bold text-amber-700">+{ind.growthRateYear} mm/yr</td>
-                        <td className="p-2.5 text-slate-700">{ind.warningDate || "Safe"}</td>
-                        <td className="p-2.5 font-mono">
-                          {ind.warningDaysRemaining !== null ? (
-                            <span className={ind.warningDaysRemaining <= 180 ? "text-red-600 font-bold" : "text-slate-700"}>
-                              {ind.warningDaysRemaining} d
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="p-2.5 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${tierBadgeColor}`}>
-                            {ind.riskTier}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {filteredTableIndications.length === 0 && (
-                    <tr>
-                      <td colSpan={13} className="p-4 text-center text-slate-400 italic">
-                        No indications matching filter criteria.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-[11px] text-slate-400 italic print:hidden">
-              * Hover over any indication in the Weld Width Plan View or Polar Ring Map above to view its live through-thickness Double-V cross section.
-            </p>
-          </div>
-        )}
+            );
+          })}
+        </div>
 
         {/* Section 6: Engineering Recommendations & Turnaround Action Plan */}
         <div className="pt-4 border-t-2 border-slate-200 space-y-2 text-xs">

@@ -13,6 +13,57 @@ interface PolarCircumferentialRingMapProps {
   nominalWallThickness?: number; // default 32.0 mm
 }
 
+interface PolarDefectBadgeProps {
+  surface: string;
+  outerRadius: number;
+  innerRadius: number;
+  center: number;
+  midRad: number;
+  isSelected: boolean;
+  isHovered: boolean;
+  defectNum: number;
+}
+
+function PolarDefectBadge({
+  surface,
+  outerRadius,
+  innerRadius,
+  center,
+  midRad,
+  isSelected,
+  isHovered,
+  defectNum,
+}: PolarDefectBadgeProps) {
+  const isOdFlaw = surface === "OD";
+  const numRadius = isOdFlaw ? outerRadius + 14 : innerRadius - 14;
+  const nx = center + numRadius * Math.cos(midRad);
+  const ny = center + numRadius * Math.sin(midRad);
+
+  return (
+    <g className="pointer-events-none defect-num-badge">
+      <circle
+        cx={nx}
+        cy={ny}
+        r="8.5"
+        fill={isSelected || isHovered ? "#0284c7" : "#0f172a"}
+        stroke="#ffffff"
+        strokeWidth="1.5"
+      />
+      <text
+        x={nx}
+        y={ny + 3}
+        textAnchor="middle"
+        fontSize="9"
+        fontWeight="900"
+        fill="#ffffff"
+        fontFamily="sans-serif"
+      >
+        #{defectNum}
+      </text>
+    </g>
+  );
+}
+
 export function PolarCircumferentialRingMap({
   indications,
   selectedFlawCode,
@@ -301,29 +352,26 @@ export function PolarCircumferentialRingMap({
                   {hoverPolar.percentCircumference}%
                 </span>
               </div>
-              {hoverPolar.hoveredFlaw && (() => {
-                const surface = getFlawSurface(hoverPolar.hoveredFlaw);
-                return (
-                  <>
-                    <span className="text-slate-300">|</span>
-                    <div className="flex items-center gap-1.5 font-semibold">
-                      <span className="text-slate-900">🎯 {hoverPolar.hoveredFlaw.code}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
-                        surface === "OD"
-                          ? "bg-amber-100 text-amber-900 border border-amber-300"
-                          : surface === "ID"
-                          ? "bg-rose-100 text-rose-900 border border-rose-300"
-                          : "bg-purple-100 text-purple-900 border border-purple-300"
-                      }`}>
-                        {surface}
-                      </span>
-                      <span className="font-mono text-[11px] text-slate-700">
-                        ({hoverPolar.hoveredFlaw.latestDepth}mm)
-                      </span>
-                    </div>
-                  </>
-                );
-              })()}
+              {hoverPolar.hoveredFlaw && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <span className="text-slate-900">🎯 {hoverPolar.hoveredFlaw.code}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                      getFlawSurface(hoverPolar.hoveredFlaw) === "OD"
+                        ? "bg-amber-100 text-amber-900 border border-amber-300"
+                        : getFlawSurface(hoverPolar.hoveredFlaw) === "ID"
+                        ? "bg-rose-100 text-rose-900 border border-rose-300"
+                        : "bg-purple-100 text-purple-900 border border-purple-300"
+                    }`}>
+                      {getFlawSurface(hoverPolar.hoveredFlaw)}
+                    </span>
+                    <span className="font-mono text-[11px] text-slate-700">
+                      ({hoverPolar.hoveredFlaw.latestDepth}mm)
+                    </span>
+                  </div>
+                </>
+              )}
             </>
           ) : (
             <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
@@ -333,15 +381,16 @@ export function PolarCircumferentialRingMap({
         </div>
       </div>
 
-      {/* Main SVG Display */}
-      <div className="relative flex justify-center items-center py-2">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${size} ${size}`}
-          className="w-full max-w-[560px] h-auto select-none cursor-crosshair overflow-visible"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-        >
+      {/* Main Grid: Polar Map on Left (lg:col-span-7), Defect Table on Right (lg:col-span-5) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="lg:col-span-7 relative flex justify-center items-center py-2">
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${size} ${size}`}
+            className="w-full max-w-[560px] h-auto select-none cursor-crosshair overflow-visible"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
           {/* Solid Green Annular Vessel Shell Wall ("Green: No crack" matching Client Reference Drawing) */}
           <circle
             cx={center}
@@ -666,329 +715,146 @@ export function PolarCircumferentialRingMap({
                   );
                 })}
 
-                {/* Permanent Defect Number Indicator Tag (e.g. #1, #2, #3, #4) */}
-                {(() => {
-                  const isOdFlaw = surface === "OD";
-                  const numRadius = isOdFlaw ? outerRadius + 14 : innerRadius - 14;
-                  const nx = center + numRadius * Math.cos(midRad);
-                  const ny = center + numRadius * Math.sin(midRad);
-                  return (
-                    <g className="pointer-events-none defect-num-badge">
-                      <circle
-                        cx={nx}
-                        cy={ny}
-                        r="8.5"
-                        fill="#0f172a"
-                        stroke="#ffffff"
-                        strokeWidth="1.5"
-                        className="shadow-xs"
-                      />
-                      <text
-                        x={nx}
-                        y={ny + 3}
-                        textAnchor="middle"
-                        fontSize="9"
-                        fontWeight="900"
-                        fill="#ffffff"
-                        fontFamily="sans-serif"
-                      >
-                        #{defectNum}
-                      </text>
-                    </g>
-                  );
-                })()}
 
-                {/* Surface Identification Badge with Leader Line on Hover/Selection */}
-                {(isSelected || isHovered) && (() => {
-                  const isOdFlaw = surface === "OD";
-                  // Origin point of the leader line at the crack boundary
-                  const originRadius = isOdFlaw ? outerRadius : innerRadius;
-                  const ox = center + originRadius * Math.cos(midRad);
-                  const oy = center + originRadius * Math.sin(midRad);
-                  
-                  // Label position pushed further away into empty space
-                  const labelRadius = isOdFlaw ? outerRadius + 50 : innerRadius - 50;
-                  const lx = center + labelRadius * Math.cos(midRad);
-                  const ly = center + labelRadius * Math.sin(midRad);
-                  
-                  const color = isOdFlaw ? "#ea580c" : surface === "ID" ? "#dc2626" : "#7c3aed";
-                  const tagLabel = `Defect #${defectNum}: ${surface === "BOTH" ? "ID/OD" : surface} (${flawDepth.toFixed(1)}mm)`;
-                  
-                  return (
-                    <g className="pointer-events-none flaw-surface-tag">
-                      <line
-                        x1={ox}
-                        y1={oy}
-                        x2={lx}
-                        y2={ly}
-                        stroke={color}
-                        strokeWidth="1.2"
-                        strokeDasharray="2 2"
-                      />
-                      {/* Halo for readability */}
-                      <text
-                        x={lx}
-                        y={ly + 4}
-                        textAnchor="middle"
-                        fontSize="11"
-                        fontWeight="900"
-                        fill="white"
-                        stroke="white"
-                        strokeWidth="3.5"
-                        fontFamily="sans-serif"
-                      >
-                        {tagLabel}
-                      </text>
-                      <text
-                        x={lx}
-                        y={ly + 4}
-                        textAnchor="middle"
-                        fontSize="11"
-                        fontWeight="900"
-                        fill={color}
-                        fontFamily="sans-serif"
-                      >
-                        {tagLabel}
-                      </text>
-                    </g>
-                  );
-                })()}
+
+                {/* Clean Numeric Badge on inner/outer side */}
+                <PolarDefectBadge
+                  surface={surface}
+                  outerRadius={outerRadius}
+                  innerRadius={innerRadius}
+                  center={center}
+                  midRad={midRad}
+                  isSelected={isSelected}
+                  isHovered={isHovered}
+                  defectNum={defectNum}
+                />
               </g>
             );
-          })}
+            })}
 
-          {/* Floating Tracking Radial Laser Line & Reticle */}
-          {hoverPolar && (
-            <g className="floating-polar-cursor pointer-events-none">
-              {/* Radial Laser Line pointing from center outwards */}
-              {(() => {
-                const rad = degToAngleRad(hoverPolar.angleDeg);
-                const endX = center + (outerRadius + 16) * Math.cos(rad);
-                const endY = center + (outerRadius + 16) * Math.sin(rad);
-                return (
-                  <line
-                    x1={center}
-                    y1={center}
-                    x2={endX}
-                    y2={endY}
-                    stroke="#0284c7"
-                    strokeWidth="1.5"
-                    strokeDasharray="3 3"
-                  />
-                );
-              })()}
-
-              {/* Hollow reticle with clear center so shell wall & flaw arcs beneath are 100% visible */}
-              <circle
-                cx={hoverPolar.xPx}
-                cy={hoverPolar.yPx}
-                r="7"
-                fill="none"
-                stroke="#0284c7"
-                strokeWidth="2"
-              />
-              <circle
-                cx={hoverPolar.xPx}
-                cy={hoverPolar.yPx}
-                r="1.75"
-                fill="#0284c7"
-              />
-
-              {/* In-situ Cursor Surface Pill directly beside the reticle when hovering a flaw */}
-              {hoverPolar.hoveredFlaw && (() => {
-                const sfc = getFlawSurface(hoverPolar.hoveredFlaw);
-                const hFlaw = hoverPolar.hoveredFlaw;
-                const dVal = sfc === "OD" 
-                  ? (hFlaw.latestDepthOd || hFlaw.latestDepth) 
-                  : (hFlaw.latestDepthId || hFlaw.latestDepth);
-                const tagText = `${sfc}: ${dVal}mm`;
-                // Position tag offset from reticle so it never obscures the crosshair or flaw
-                const tagX = hoverPolar.xPx + (hoverPolar.xPx > center ? -76 : 14);
-                const tagY = hoverPolar.yPx - 10;
-                return (
-                  <g className="cursor-insitu-badge">
-                    <rect
-                      x={tagX}
-                      y={tagY - 10}
-                      width="68"
-                      height="18"
-                      rx="4"
-                      fill={sfc === "OD" ? "#ea580c" : sfc === "ID" ? "#dc2626" : "#7c3aed"}
-                      stroke="#ffffff"
-                      strokeWidth="1"
-                      fillOpacity="0.95"
-                    />
-                    <text
-                      x={tagX + 34}
-                      y={tagY + 2.5}
-                      textAnchor="middle"
-                      fontSize="9.5"
-                      fontWeight="bold"
-                      fill="#ffffff"
-                      fontFamily="sans-serif"
-                    >
-                      {tagText}
-                    </text>
-                  </g>
-                );
-              })()}
-            </g>
-          )}
-        </svg>
-
-        {/* Docked Inspector HUD Card — Stays in opposite corner away from the cursor */}
-        {hoverPolar && (
-          <div
-            className={`absolute pointer-events-none z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-lg shadow-xl p-3 text-xs text-slate-800 transition-all duration-100 ${
-              hoverPolar.xPx > center ? "left-3 top-3" : "right-3 top-3"
-            }`}
-            style={{
-              minWidth: "250px",
-            }}
-          >
-            {hoverPolar.hoveredFlaw ? (() => {
-              const hFlaw = hoverPolar.hoveredFlaw;
-              const surface = getFlawSurface(hFlaw);
-              const depthVal = hFlaw.latestDepth || 0;
-              const depthIdVal = typeof hFlaw.latestDepthId === "number" && hFlaw.latestDepthId > 0 
-                ? hFlaw.latestDepthId 
-                : (surface === "ID" ? depthVal : null);
-              const depthOdVal = typeof hFlaw.latestDepthOd === "number" && hFlaw.latestDepthOd > 0 
-                ? hFlaw.latestDepthOd 
-                : (surface === "OD" ? depthVal : null);
-              const totalPenetration = (depthIdVal || 0) + (depthOdVal || 0) > 0 
-                ? ((depthIdVal || 0) + (depthOdVal || 0)) 
-                : depthVal;
-              const remainingWall = Math.max(0, nominalWallThickness - totalPenetration);
-
-              return (
-                <div>
-                  <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200">
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-sm text-slate-900">{hFlaw.code}</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wide ${
-                        surface === "OD"
-                          ? "bg-amber-100 text-amber-900 border border-amber-300"
-                          : surface === "ID"
-                          ? "bg-rose-100 text-rose-900 border border-rose-300"
-                          : "bg-purple-100 text-purple-900 border border-purple-300"
-                      }`}>
-                        {surface === "OD" ? "OD SURFACE" : surface === "ID" ? "ID SURFACE" : "DUAL ID/OD"}
-                      </span>
-                    </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-sky-100 text-sky-800">
-                      Slot {hoverPolar.currentSlot}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    {/* Explicit Surface Callout */}
-                    <div className="flex justify-between items-center py-1 px-2 rounded bg-slate-100/90">
-                      <span className="text-slate-600 font-medium">Flaw Location:</span>
-                      <span className={`font-bold ${
-                        surface === "OD" ? "text-amber-800" : surface === "ID" ? "text-rose-700" : "text-purple-800"
-                      }`}>
-                        {surface === "OD" 
-                          ? "OD (Outer Diameter / External)" 
-                          : surface === "ID" 
-                          ? "ID (Inner Diameter / Clad)" 
-                          : "Through-Wall (Both Surfaces)"}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Angle (θ):</span>
-                      <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}° (Anticlockwise)</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Circumferential Pos:</span>
-                      <span className="font-mono font-bold text-slate-900">
-                        {hoverPolar.positionMeters} m ({hoverPolar.positionMm} mm)
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Flaw Length:</span>
-                      <span className="font-bold text-slate-900">{hFlaw.latestLength} mm</span>
-                    </div>
-
-                    {depthIdVal !== null && (
-                      <div className="flex justify-between items-center text-rose-700 font-semibold bg-rose-50/70 px-2 py-0.5 rounded">
-                        <span>ID Flaw Depth:</span>
-                        <span className="font-mono font-bold">
-                          {depthIdVal.toFixed(1)} mm ({((depthIdVal / nominalWallThickness) * 100).toFixed(0)}% wall)
-                        </span>
-                      </div>
-                    )}
-
-                    {depthOdVal !== null && (
-                      <div className="flex justify-between items-center text-amber-700 font-semibold bg-amber-50/70 px-2 py-0.5 rounded">
-                        <span>OD Flaw Depth:</span>
-                        <span className="font-mono font-bold">
-                          {depthOdVal.toFixed(1)} mm ({((depthOdVal / nominalWallThickness) * 100).toFixed(0)}% wall)
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Remaining Sound Wall:</span>
-                      <span className="font-mono font-bold text-emerald-700">
-                        {remainingWall.toFixed(1)} mm
-                      </span>
-                    </div>
-
-                    {hFlaw.weldPosition && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Position / Landmark:</span>
-                        <span className="font-semibold text-slate-700">{hFlaw.weldPosition}</span>
-                      </div>
-                    )}
-                    {hFlaw.cladStatus && (
-                      <div className="flex justify-between text-slate-600">
-                        <span>Clad Status:</span>
-                        <span className="font-semibold">{hFlaw.cladStatus}</span>
-                      </div>
-                    )}
-                    {hFlaw.growthRateYear > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Growth Rate:</span>
-                        <span className="font-bold text-amber-600">+{hFlaw.growthRateYear} mm/yr</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })() : (
-              <div>
-                <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200">
-                  <span className="font-bold text-slate-900">Sound Vessel Shell</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-sky-100 text-sky-800">
-                    Slot {hoverPolar.currentSlot}
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Angle (θ):</span>
-                    <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}° (Anticlockwise)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Circumferential Pos:</span>
-                    <span className="font-mono font-bold text-slate-900">
-                      {hoverPolar.positionMeters} m ({hoverPolar.positionMm} mm)
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Perimeter %:</span>
-                    <span className="font-mono font-bold text-sky-700">{hoverPolar.percentCircumference}% of 360°</span>
-                  </div>
-                  <div className="flex justify-between text-emerald-700 pt-1 border-t border-slate-100 font-semibold">
-                    <span>Shell Status:</span>
-                    <span>No crack detected (Healthy)</span>
-                  </div>
-                </div>
-              </div>
+            {/* Hover Reticle */}
+            {hoverPolar && (
+              <g className="pointer-events-none">
+                <line
+                  x1={center + (innerRadius - 10) * Math.cos(degToAngleRad(hoverPolar.angleDeg))}
+                  y1={center + (innerRadius - 10) * Math.sin(degToAngleRad(hoverPolar.angleDeg))}
+                  x2={center + (outerRadius + 10) * Math.cos(degToAngleRad(hoverPolar.angleDeg))}
+                  y2={center + (outerRadius + 10) * Math.sin(degToAngleRad(hoverPolar.angleDeg))}
+                  stroke="#0284c7"
+                  strokeWidth="1.8"
+                  strokeDasharray="2 2"
+                />
+                <circle
+                  cx={hoverPolar.xPx}
+                  cy={hoverPolar.yPx}
+                  r="5"
+                  fill="none"
+                  stroke="#0284c7"
+                  strokeWidth="2"
+                />
+              </g>
             )}
+          </svg>
+        </div>
+
+        {/* Right: Side-by-Side Defect Details Table */}
+        <div className="lg:col-span-5 bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+              {weldName} Defect Log ({indications.length} Indications)
+            </h4>
+            <span className="text-[10px] text-slate-500 font-medium">Wall: {nominalWallThickness}mm</span>
           </div>
-        )}
+
+          <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-200/70 border-b border-slate-200 text-slate-700 font-bold text-[11px]">
+                  <th className="p-2">#</th>
+                  <th className="p-2">Slot</th>
+                  <th className="p-2">Pos</th>
+                  <th className="p-2">Sfc</th>
+                  <th className="p-2">Depth</th>
+                  <th className="p-2">% Wall</th>
+                  <th className="p-2">Severity</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {indications.map((pi, idx) => {
+                  const defectNum = idx + 1;
+                  const isSelected = selectedFlawCode === pi.code;
+                  const isHovered = hoverPolar?.hoveredFlaw?.code === pi.code;
+                  const surface = getFlawSurface(pi);
+                  const effDepth = pi.latestDepth || 2.5;
+                  const pct = Math.round((effDepth / nominalWallThickness) * 100);
+                  const color = getFlawDepthColor(effDepth);
+
+                  // Compute slot from position
+                  const slotIndex = Math.floor((pi.circumferentialPosition / totalCircumferenceMm) * TOTAL_SLOTS) % TOTAL_SLOTS;
+                  const slotName = `L${slotIndex + 1}`;
+
+                  return (
+                    <tr
+                      key={pi.code}
+                      onClick={() => onSelectFlaw?.(pi)}
+                      onMouseEnter={() => {
+                        const { angleDeg, angleRad } = mmToAngle(pi.circumferentialPosition);
+                        setHoverPolar({
+                          xPx: center + midRadius * Math.cos(angleRad),
+                          yPx: center + midRadius * Math.sin(angleRad),
+                          angleDeg: Number(angleDeg.toFixed(1)),
+                          positionMm: pi.circumferentialPosition,
+                          positionMeters: Number((pi.circumferentialPosition / 1000).toFixed(2)),
+                          percentCircumference: Number(((pi.circumferentialPosition / totalCircumferenceMm) * 100).toFixed(1)),
+                          currentSlot: slotName,
+                          hoveredFlaw: pi,
+                        });
+                      }}
+                      onMouseLeave={() => setHoverPolar(null)}
+                      className={`cursor-pointer transition text-[11px] ${
+                        isSelected
+                          ? "bg-sky-100 font-bold text-sky-900"
+                          : isHovered
+                          ? "bg-sky-50 font-medium"
+                          : "hover:bg-slate-100/80"
+                      }`}
+                    >
+                      <td className="p-2 font-bold text-slate-900">#{defectNum}</td>
+                      <td className="p-2 font-semibold text-slate-700">{slotName}</td>
+                      <td className="p-2 font-mono text-slate-800">{pi.circumferentialPosition}mm</td>
+                      <td className="p-2 font-semibold">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                          surface === "OD" ? "bg-amber-100 text-amber-900" : surface === "ID" ? "bg-rose-100 text-rose-900" : "bg-purple-100 text-purple-900"
+                        }`}>
+                          {surface}
+                        </span>
+                      </td>
+                      <td className="p-2 font-mono font-bold" style={{ color }}>
+                        {effDepth.toFixed(1)}mm
+                      </td>
+                      <td className="p-2 font-mono text-slate-700">{pct}%</td>
+                      <td className="p-2">
+                        <span
+                          className="w-3 h-3 rounded-full inline-block border border-slate-400/40"
+                          style={{ backgroundColor: color }}
+                          title={`Severity color for ${effDepth}mm`}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+                {indications.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-4 text-center text-slate-400 italic">
+                      No crack indications recorded (Sound Base Metal).
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Severity Color Legend Matching Reference Drawing Exactly */}

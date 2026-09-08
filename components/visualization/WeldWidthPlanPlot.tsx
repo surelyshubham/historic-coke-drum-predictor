@@ -222,6 +222,7 @@ export function WeldWidthPlanPlot({
   const getDepthGrade = (depth: number) => {
     if (depth <= 3.0) {
       return {
+        fillColor: "#eab308",
         gradientId: "url(#indication-yellow)",
         strokeColor: "#ca8a04",
         darkColor: "#854d0e",
@@ -231,6 +232,7 @@ export function WeldWidthPlanPlot({
       };
     } else if (depth <= 6.0) {
       return {
+        fillColor: "#f97316",
         gradientId: "url(#indication-orange)",
         strokeColor: "#ea580c",
         darkColor: "#9a3412",
@@ -240,6 +242,7 @@ export function WeldWidthPlanPlot({
       };
     } else if (depth <= 10.0) {
       return {
+        fillColor: "#dc2626",
         gradientId: "url(#indication-red)",
         strokeColor: "#b91c1c",
         darkColor: "#7f1d1d",
@@ -249,6 +252,7 @@ export function WeldWidthPlanPlot({
       };
     } else {
       return {
+        fillColor: "#991b1b",
         gradientId: "url(#indication-darkred)",
         strokeColor: "#7f1d1d",
         darkColor: "#450a0a",
@@ -560,13 +564,14 @@ export function WeldWidthPlanPlot({
             Index Offset (mm)
           </text>
 
-          {/* Render Defect Indications as Authentic Depth-Coded Proportional Acoustic Streaks with Defect Numbering */}
+          {/* Render Defect Indications as Authentic Solid-Filled Depth-Coded Marks with Defect Numbering */}
           {indications.map((pi, idx) => {
             const defectNum = idx + 1;
             const startX = pi.circumferentialPosition;
             const flawLen = Math.max(6, pi.latestLength || 15);
             const x1 = scaleX(startX);
             const x2 = scaleX(startX + flawLen);
+            const boxWidth = Math.max(12, x2 - x1);
             const offset = getFlawOffset(pi);
             const yCenter = scaleY(offset);
 
@@ -579,8 +584,9 @@ export function WeldWidthPlanPlot({
             ) || 2.5;
 
             const depthGrade = getDepthGrade(effectiveDepth);
-            // Proportional acoustic thickness based on depth
-            const streakThickness = Math.max(4, Math.min(10, (effectiveDepth / 12) * 7 + 3.5));
+            const streakThickness = Math.max(7, Math.min(13, (effectiveDepth / 12) * 8 + 6));
+            const yTop = yCenter - streakThickness / 2;
+            const rx = streakThickness / 2;
             const flawCodeLabel = pi.code.split("-").pop() || pi.code;
             const midX = (x1 + x2) / 2;
 
@@ -592,48 +598,38 @@ export function WeldWidthPlanPlot({
               >
                 {/* Indication Selection / Hover Glow Backing */}
                 {(isSelected || isHovered) && (
-                  <line
-                    x1={x1}
-                    y1={yCenter}
-                    x2={x2}
-                    y2={yCenter}
-                    stroke={depthGrade.strokeColor}
-                    strokeWidth={streakThickness + 6}
-                    strokeLinecap="round"
-                    strokeOpacity="0.45"
+                  <rect
+                    x={x1 - 3}
+                    y={yTop - 3}
+                    width={boxWidth + 6}
+                    height={streakThickness + 6}
+                    rx={rx + 3}
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth="2.5"
                     className="animate-pulse"
                   />
                 )}
 
-                {/* Main Acoustic Indication Line with Rounded Caps (Proportional Depth Stroke) */}
-                <line
-                  x1={x1}
-                  y1={yCenter}
-                  x2={x2}
-                  y2={yCenter}
+                {/* Main 100% SOLID FILLED Indication Mark (Solid Depth-Severity Color Fill) */}
+                <rect
+                  x={x1}
+                  y={yTop}
+                  width={boxWidth}
+                  height={streakThickness}
+                  rx={rx}
+                  fill={depthGrade.fillColor}
+                  fillOpacity="1"
                   stroke={depthGrade.strokeColor}
-                  strokeWidth={streakThickness}
-                  strokeLinecap="round"
-                  className="transition-all hover:brightness-110"
+                  strokeWidth="1.8"
+                  className="transition-all hover:brightness-110 shadow-sm"
                 />
 
-                {/* Core Ultrasonic Reflection Inner Highlight */}
-                <line
-                  x1={x1 + 2}
-                  y1={yCenter}
-                  x2={x2 - 2}
-                  y2={yCenter}
-                  stroke="#ffffff"
-                  strokeWidth={Math.max(1, streakThickness * 0.35)}
-                  strokeLinecap="round"
-                  strokeOpacity="0.75"
-                />
-
-                {/* Clean Defect Number & Position Label (Halo Text, No Blocky Box) */}
+                {/* Clean Defect Number Label on top/bottom */}
                 <g className="pointer-events-none">
                   <text
                     x={midX}
-                    y={offset >= 0 ? yCenter - streakThickness / 2 - 4 : yCenter + streakThickness / 2 + 11}
+                    y={offset >= 0 ? yTop - 4 : yTop + streakThickness + 11}
                     textAnchor="middle"
                     fontSize="9.5"
                     fontWeight="800"
@@ -646,7 +642,7 @@ export function WeldWidthPlanPlot({
                   </text>
                   <text
                     x={midX}
-                    y={offset >= 0 ? yCenter - streakThickness / 2 - 4 : yCenter + streakThickness / 2 + 11}
+                    y={offset >= 0 ? yTop - 4 : yTop + streakThickness + 11}
                     textAnchor="middle"
                     fontSize="9.5"
                     fontWeight="800"
@@ -758,6 +754,104 @@ export function WeldWidthPlanPlot({
             )}
           </div>
         )}
+      </div>
+
+      {/* Side-by-Side Defect Details Table for Plan View */}
+      <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+          <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-sky-600"></span>
+            Weld Indication Log ({indications.length} Indications)
+          </h4>
+          <span className="text-[10px] text-slate-500 font-medium">Top-down C-Scan View</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-200/70 border-b border-slate-200 text-slate-700 font-bold text-[11px]">
+                <th className="p-2">#</th>
+                <th className="p-2">Flaw Code</th>
+                <th className="p-2">Scan Pos</th>
+                <th className="p-2">Length</th>
+                <th className="p-2">Offset</th>
+                <th className="p-2">Depth</th>
+                <th className="p-2">% Wall</th>
+                <th className="p-2">Severity</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {indications.map((pi, idx) => {
+                const defectNum = idx + 1;
+                const isSelected = selectedFlawCode === pi.code;
+                const isHovered = hoverCursor?.hoveredFlaw?.code === pi.code;
+                const effDepth = pi.latestDepth || 2.5;
+                const pct = Math.round((effDepth / 32.0) * 100);
+                const depthGrade = getDepthGrade(effDepth);
+                const offset = getFlawOffset(pi);
+
+                return (
+                  <tr
+                    key={pi.code}
+                    onClick={() => onSelectFlaw?.(pi)}
+                    onMouseEnter={() => {
+                      const startX = pi.circumferentialPosition;
+                      const xPx = scaleX(startX + (pi.latestLength || 20) / 2);
+                      const yPx = scaleY(offset);
+                      setHoverCursor({
+                        xPx,
+                        yPx,
+                        scanLengthMm: startX,
+                        indexOffsetMm: offset,
+                        percentOfWeldWidth: Number(((offset / hazHalfWidthMm) * 100).toFixed(1)),
+                        hoveredFlaw: pi,
+                      });
+                    }}
+                    onMouseLeave={() => setHoverCursor(null)}
+                    className={`cursor-pointer transition text-[11px] ${
+                      isSelected
+                        ? "bg-sky-100 font-bold text-sky-900"
+                        : isHovered
+                        ? "bg-sky-50 font-medium"
+                        : "hover:bg-slate-100/80"
+                    }`}
+                  >
+                    <td className="p-2 font-bold text-slate-900">#{defectNum}</td>
+                    <td className="p-2 font-mono font-bold text-slate-800">{pi.code}</td>
+                    <td className="p-2 font-mono text-slate-700">{pi.circumferentialPosition} mm</td>
+                    <td className="p-2 font-mono text-slate-700">{pi.latestLength || 15} mm</td>
+                    <td className="p-2 font-mono text-slate-700">
+                      {offset > 0 ? `+${offset}` : offset} mm
+                    </td>
+                    <td className="p-2 font-mono font-bold" style={{ color: depthGrade.fillColor }}>
+                      {effDepth.toFixed(1)} mm
+                    </td>
+                    <td className="p-2 font-mono text-slate-700">{pct}%</td>
+                    <td className="p-2">
+                      <span
+                        className="px-2 py-0.5 rounded text-[10px] font-bold border inline-block"
+                        style={{
+                          backgroundColor: depthGrade.badgeBg,
+                          color: depthGrade.textColor,
+                          borderColor: depthGrade.fillColor,
+                        }}
+                      >
+                        {depthGrade.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {indications.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="p-4 text-center text-slate-400 italic">
+                    No crack indications detected in this weld seam.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Depth Severity Color Scale & Weld Guidelines Legend */}

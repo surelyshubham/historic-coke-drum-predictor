@@ -41,6 +41,10 @@ export function PredictiveForecastChart({
   const [curveColor, setCurveColor] = useState<string>("#0284c7"); // Sky Blue
   const [confidenceColor, setConfidenceColor] = useState<string>("#38bdf8"); // Sky Light
 
+  // Client Manual Corrosion / Growth Rate Override
+  const [isManualRate, setIsManualRate] = useState<boolean>(false);
+  const [manualRateInput, setManualRateInput] = useState<string>("");
+
   // Floating Cursor State
   const [hoverData, setHoverData] = useState<{
     x: number;
@@ -57,6 +61,7 @@ export function PredictiveForecastChart({
       return generateGrowthPrediction(measurements, {
         modelType,
         scenario,
+        manualGrowthRateMmYear: isManualRate && manualRateInput !== "" && !isNaN(Number(manualRateInput)) ? Number(manualRateInput) : undefined,
         thresholds: {
           nominalWallThickness,
           warningThresholdPercent: warningPercent,
@@ -68,7 +73,7 @@ export function PredictiveForecastChart({
       console.error("Error generating prediction:", err);
       return null;
     }
-  }, [measurements, modelType, scenario, nominalWallThickness, warningPercent, criticalPercent]);
+  }, [measurements, modelType, scenario, isManualRate, manualRateInput, nominalWallThickness, warningPercent, criticalPercent]);
 
   // Derived threshold values in mm
   const warningDepthMm = (nominalWallThickness * warningPercent) / 100.0;
@@ -189,6 +194,8 @@ export function PredictiveForecastChart({
     setCriticalColor("#ef4444");
     setCurveColor("#0284c7");
     setConfidenceColor("#38bdf8");
+    setIsManualRate(false);
+    setManualRateInput("");
   };
 
   if (!projection) {
@@ -751,6 +758,58 @@ export function PredictiveForecastChart({
                 />
                 <span className="text-slate-500">mm</span>
               </div>
+            </div>
+          </div>
+
+          {/* Manual Corrosion / Growth Rate Override */}
+          <div className="pt-3 border-t border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                Corrosion / Growth Rate
+              </span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isManualRate ? "bg-amber-100 text-amber-900 border border-amber-300" : "bg-sky-100 text-sky-800"}`}>
+                {isManualRate ? "Manual Override" : "Auto OLS Model"}
+              </span>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-2.5 space-y-2 shadow-2xs">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-800 font-medium">
+                <input
+                  type="checkbox"
+                  checked={isManualRate}
+                  onChange={(e) => {
+                    setIsManualRate(e.target.checked);
+                    if (e.target.checked && (!manualRateInput || manualRateInput === "")) {
+                      setManualRateInput(projection?.annualDepthRateMmYear.toFixed(2) || "1.00");
+                    }
+                  }}
+                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                />
+                <span>Enable Custom Rate Entry</span>
+              </label>
+
+              {isManualRate && (
+                <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-600 text-[11px]">User Growth Rate:</span>
+                    <div className="relative flex items-center">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.0"
+                        max="25.0"
+                        value={manualRateInput}
+                        onChange={(e) => setManualRateInput(e.target.value)}
+                        className="w-20 px-2 py-1 border border-amber-300 rounded font-mono font-bold text-amber-900 bg-amber-50 focus:ring-2 focus:ring-amber-500 text-xs text-right pr-6"
+                      />
+                      <span className="absolute right-1 text-[10px] text-amber-700 font-semibold pointer-events-none">mm</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-amber-700 font-medium">
+                    ⚡ Real-time lifing &amp; warning breach recalculated at <strong>+{manualRateInput || "0"} mm/yr</strong>.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

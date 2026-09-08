@@ -173,6 +173,7 @@ export function generateGrowthPrediction(
     modelType?: PredictionModelType;
     scenario?: ScenarioType;
     safetyMarginPercent?: number; // default 30 for ±30%
+    manualGrowthRateMmYear?: number | null; // User manually overridden corrosion/growth rate
     thresholds?: Partial<ThresholdConfig>;
     forecastYears?: number; // default 5 years
     stepMonths?: number; // default 3 months
@@ -183,6 +184,9 @@ export function generateGrowthPrediction(
   const safetyMarginPercent = typeof options?.safetyMarginPercent === 'number'
     ? Math.max(0, Math.min(100, options.safetyMarginPercent))
     : 30;
+  const manualGrowthRateMmYear = typeof options?.manualGrowthRateMmYear === 'number' && !isNaN(options.manualGrowthRateMmYear) && options.manualGrowthRateMmYear >= 0
+    ? options.manualGrowthRateMmYear
+    : null;
   const forecastYears = options?.forecastYears ?? 5;
   const stepMonths = options?.stepMonths ?? 3;
 
@@ -255,14 +259,14 @@ export function generateGrowthPrediction(
     let predLength = 0;
 
     if (sorted.length === 1) {
-      // Single observation point: use industry standard nominal growth rate (0.8 mm/yr depth, 8 mm/yr length)
+      // Single observation point: use industry standard nominal growth rate or manual override
       const dt = t - latestTimeYears;
-      const baseDepthRate = 0.8 * customMultiplier;
+      const baseDepthRate = (manualGrowthRateMmYear !== null ? manualGrowthRateMmYear : 0.8) * customMultiplier;
       const baseLengthRate = 8.0 * customLenMultiplier;
       predDepth = latestDepth + Math.max(0, dt) * baseDepthRate;
       predLength = latestLength + Math.max(0, dt) * baseLengthRate;
     } else if (modelType === 'LINEAR') {
-      const nominalDepthRate = Math.max(0, linDepth.slope) * customMultiplier;
+      const nominalDepthRate = (manualGrowthRateMmYear !== null ? manualGrowthRateMmYear : Math.max(0, linDepth.slope)) * customMultiplier;
       const nominalLengthRate = Math.max(0, linLength.slope) * customLenMultiplier;
       const dt = t - latestTimeYears;
       if (dt <= 0) {
@@ -274,7 +278,7 @@ export function generateGrowthPrediction(
       }
     } else {
       // Exponential
-      const nominalExpRate = Math.max(0, expDepth.rate) * customMultiplier;
+      const nominalExpRate = (manualGrowthRateMmYear !== null ? (manualGrowthRateMmYear / Math.max(0.1, latestDepth)) : Math.max(0, expDepth.rate)) * customMultiplier;
       const nominalLenExpRate = Math.max(0, expLength.rate) * customLenMultiplier;
       const dt = t - latestTimeYears;
       if (dt <= 0) {
