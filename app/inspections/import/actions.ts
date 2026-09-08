@@ -244,63 +244,92 @@ export async function commitMatrixDatasetAction(payload: {
   const userId = parseInt(session.user.id as string);
   const { drumId, matrixResult } = payload;
 
-  // 1. Ensure all referenced weld joints exist in the Coke Drum
-  const existingWelds = await db.select().from(weldJoints).where(eq(weldJoints.drumId, drumId));
-  const weldLookup = new Map<string, number>();
-  existingWelds.forEach(w => weldLookup.set(w.name.toUpperCase().replace(/[^A-Z0-9]/g, ''), w.id));
+  // 0. Auto-register all unique drums detected in the matrix if missing
+  const existingDrums = await db.select().from(cokeDrums);
+  const drumLookup = new Map<string, number>();
+  existingDrums.forEach(d => drumLookup.set(d.name.toUpperCase().trim(), d.id));
+  const defaultClientId = existingDrums[0]?.clientId || 1;
 
-  // Collect unique welds in matrix
-  const distinctWelds = new Set<string>();
+  for (const drumName of matrixResult.availableDrums) {
+    const norm = drumName.toUpperCase().trim();
+    if (!drumLookup.has(norm)) {
+      const [newDrum] = await db.insert(cokeDrums).values({
+        clientId: defaultClientId,
+        name: drumName,
+        description: `Coke Drum ${drumName}`,
+        diameter: 8.97,
+        nominalThickness: 32.0,
+        material: "SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)",
+        status: "active",
+      }).returning();
+      drumLookup.set(norm, newDrum.id);
+    }
+  }
+
+  const getTargetDrumId = (dName?: string) => {
+    if (!dName) return drumId;
+    return drumLookup.get(dName.toUpperCase().trim()) || drumId;
+  };
+
+  // 1. Ensure all referenced weld joints exist for their respective Coke Drum
+  const allExistingWelds = await db.select().from(weldJoints);
+  const weldLookup = new Map<string, number>();
+  allExistingWelds.forEach(w => weldLookup.set(`${w.drumId}_${w.name.toUpperCase().replace(/[^A-Z0-9]/g, '')}`, w.id));
+
+  // Collect distinct (drumId, weldName) pairs
+  const distinctWeldPairs = new Set<string>();
   matrixResult.physicalIndications.forEach(pi => {
-    if (pi.weldName) distinctWelds.add(pi.weldName.trim().toUpperCase());
+    if (pi.weldName) {
+      const dId = getTargetDrumId(pi.drumName);
+      distinctWeldPairs.add(`${dId}:::${pi.weldName.trim()}`);
+    }
   });
 
-  for (const wName of Array.from(distinctWelds)) {
-    const norm = wName.replace(/[^A-Z0-9]/g, '');
-    if (!weldLookup.has(norm)) {
+  for (const pair of Array.from(distinctWeldPairs)) {
+    const [dIdStr, wName] = pair.split(':::');
+    const dId = parseInt(dIdStr, 10);
+    const norm = wName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const key = `${dId}_${norm}`;
+    if (!weldLookup.has(key)) {
       const [newWeld] = await db.insert(weldJoints).values({
-        drumId,
+        drumId: dId,
         name: wName,
         referenceDistance: 0,
         configuration: 'Circumferential Weld',
       }).returning();
-      weldLookup.set(norm, newWeld.id);
+      weldLookup.set(key, newWeld.id);
     }
   }
 
-  const defaultWeldId = existingWelds[0]?.id || Array.from(weldLookup.values())[0];
-
-  // 2. Create or find Inspection campaigns in the database
+  // 2. Create or find Inspection campaigns in the database for each active drum
   const campaignMap = new Map<string, number>();
-  for (const camp of matrixResult.campaigns) {
-    const [existing] = await db
-      .select()
-      .from(inspections)
-      .where(eq(inspections.drumId, drumId))
-      .limit(1);
+  const activeDrumIds = Array.from(new Set(matrixResult.availableDrums.map(d => getTargetDrumId(d))));
 
-    const [newInsp] = await db.insert(inspections).values({
-      drumId,
-      campaignName: camp.label,
-      inspectionDate: new Date(camp.date),
-      inspectionType: 'PAUT/DRM Matrix',
-      processingStatus: 'COMPLETED',
-      validationStatus: 'VALIDATED',
-      createdBy: userId,
-    }).returning();
-
-    campaignMap.set(camp.key, newInsp.id);
+  for (const targetDrumId of activeDrumIds) {
+    for (const camp of matrixResult.campaigns) {
+      const [newInsp] = await db.insert(inspections).values({
+        drumId: targetDrumId,
+        campaignName: camp.label,
+        inspectionDate: new Date(camp.date),
+        inspectionType: 'PAUT/DRM Matrix',
+        processingStatus: 'COMPLETED',
+        validationStatus: 'VALIDATED',
+        createdBy: userId,
+      }).returning();
+      campaignMap.set(`${targetDrumId}_${camp.key}`, newInsp.id);
+    }
   }
 
-  // 3. Create persistent Physical Indications
+  // 3. Create persistent Physical Indications under their respective drums
   const piIdMap = new Map<string, number>();
   for (const pi of matrixResult.physicalIndications) {
+    const targetDrumId = getTargetDrumId(pi.drumName);
     const normWeld = pi.weldName.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const wId = weldLookup.get(normWeld) || defaultWeldId;
+    const wId = weldLookup.get(`${targetDrumId}_${normWeld}`) || allExistingWelds[0]?.id || 1;
 
     const [insertedPi] = await db.insert(physicalIndications).values({
       code: pi.code,
-      drumId,
+      drumId: targetDrumId,
       weldJointId: wId,
       approximateLocation: pi.circumferentialPosition,
       status: pi.hasRepairs ? 'REPAIRED' : 'ACTIVE',
@@ -315,12 +344,13 @@ export async function commitMatrixDatasetAction(payload: {
   const observationBatch: any[] = [];
   const piMatchPairs: Array<{ piCode: string; obsIndex: number; isRepair?: boolean }> = [];
 
-  matrixResult.observations.forEach((obs, idx) => {
-    const inspId = campaignMap.get(obs.campaignKey);
+  matrixResult.observations.forEach((obs) => {
+    const targetDrumId = getTargetDrumId(obs.drumName);
+    const inspId = campaignMap.get(`${targetDrumId}_${obs.campaignKey}`);
     if (!inspId) return;
 
     const normWeld = obs.weldName.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const wId = weldLookup.get(normWeld) || defaultWeldId;
+    const wId = weldLookup.get(`${targetDrumId}_${normWeld}`) || allExistingWelds[0]?.id || 1;
 
     observationBatch.push({
       inspectionId: inspId,
