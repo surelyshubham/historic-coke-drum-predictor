@@ -11,6 +11,136 @@ interface WeldWidthPlanPlotProps {
   hazHalfWidthMm?: number; // default 6 mm (+6 to -6)
 }
 
+interface MiniBevelSScanPreviewProps {
+  flaw: TrackedPhysicalIndication;
+  nominalWall?: number;
+}
+
+function MiniBevelSScanPreview({ flaw, nominalWall = 32.0 }: MiniBevelSScanPreviewProps) {
+  const effDepth = flaw.latestDepth || 3.0;
+  const depthPct = Math.min(100, Math.round((effDepth / nominalWall) * 100));
+  const remainingWall = Math.max(0, nominalWall - effDepth);
+  const textPos = (flaw.weldPosition || "").toUpperCase();
+  const isOD = textPos.includes("OD");
+  const isBT = textPos.includes("BT") || textPos.includes("BOTTOM");
+
+  const pLeft = 25;
+  const pRight = 255;
+  const pTop = 22;
+  const pBottom = 92;
+  const pThick = pBottom - pTop;
+  const wCenter = (pLeft + pRight) / 2;
+  const rootY = pBottom - (11.5 / nominalWall) * pThick;
+
+  const odTT = wCenter - (22 / 55) * ((pRight - pLeft) / 2);
+  const odBT = wCenter + (22 / 55) * ((pRight - pLeft) / 2);
+  const idTT = wCenter - (11 / 55) * ((pRight - pLeft) / 2);
+  const idBT = wCenter + (11 / 55) * ((pRight - pLeft) / 2);
+
+  const crackDepthPx = (Math.min(nominalWall, effDepth) / nominalWall) * pThick;
+  const originX = isBT ? (isOD ? odBT : idBT) : (isOD ? odTT : idTT);
+  const originY = isOD ? pTop : pBottom;
+  const tipX = originX + (isBT ? -4 : 4);
+  const tipY = isOD ? pTop + crackDepthPx : pBottom - crackDepthPx;
+
+  return (
+    <div className="space-y-2">
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 flex justify-center">
+        <svg viewBox="0 0 280 110" className="w-full h-auto max-w-[280px]">
+          <rect
+            x={pLeft}
+            y={pTop}
+            width={pRight - pLeft}
+            height={pThick}
+            fill="#ffffff"
+            stroke="#0f172a"
+            strokeWidth="1.8"
+          />
+          <rect
+            x={pLeft}
+            y={pBottom - (3.0 / nominalWall) * pThick}
+            width={pRight - pLeft}
+            height={(3.0 / nominalWall) * pThick}
+            fill="#38bdf8"
+            fillOpacity="0.18"
+            stroke="#0284c7"
+            strokeWidth="0.8"
+            strokeDasharray="2 2"
+          />
+          <polygon
+            points={`${odTT},${pTop} ${odBT},${pTop} ${wCenter + 2},${rootY} ${wCenter - 2},${rootY}`}
+            fill="#cbd5e1"
+            stroke="#64748b"
+            strokeWidth="0.8"
+          />
+          <polygon
+            points={`${idTT},${pBottom} ${wCenter - 2},${rootY} ${wCenter + 2},${rootY} ${idBT},${pBottom}`}
+            fill="#cbd5e1"
+            stroke="#64748b"
+            strokeWidth="0.8"
+          />
+          <line
+            x1={wCenter}
+            y1={pTop - 6}
+            x2={wCenter}
+            y2={pBottom + 6}
+            stroke="#16a34a"
+            strokeWidth="1"
+            strokeDasharray="3 2"
+          />
+          <text x={pLeft - 4} y={pTop + 4} textAnchor="end" fontSize="8" fontWeight="800" fill="#0f172a">OD</text>
+          <text x={pLeft - 4} y={pBottom} textAnchor="end" fontSize="8" fontWeight="800" fill="#0f172a">ID</text>
+          <text x={odTT} y={pTop - 4} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">TT</text>
+          <text x={odBT} y={pTop - 4} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">BT</text>
+          <text x={idTT} y={pBottom + 8} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">TT</text>
+          <text x={idBT} y={pBottom + 8} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">BT</text>
+          <line
+            x1={originX}
+            y1={originY}
+            x2={tipX}
+            y2={tipY}
+            stroke={isOD ? "#ea580c" : "#dc2626"}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+          <circle cx={originX} cy={originY} r="2.5" fill={isOD ? "#c2410c" : "#b91c1c"} />
+          <circle cx={tipX} cy={tipY} r="6" fill="#f87171" fillOpacity="0.4" />
+          <circle cx={tipX} cy={tipY} r="2" fill="#991b1b" />
+          <text
+            x={tipX > wCenter ? tipX - 8 : tipX + 8}
+            y={isOD ? tipY + 8 : tipY - 4}
+            textAnchor={tipX > wCenter ? "end" : "start"}
+            fontSize="8.5"
+            fontWeight="bold"
+            fill={isOD ? "#ea580c" : "#dc2626"}
+          >
+            {isOD ? "OD" : "ID"}: {effDepth.toFixed(1)}mm ({depthPct}%)
+          </text>
+        </svg>
+      </div>
+
+      <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-100 text-[11px]">
+        <div>
+          <span className="text-slate-500">Scan Pos:</span>
+          <span className="font-bold text-slate-900 ml-1">{flaw.circumferentialPosition} mm</span>
+        </div>
+        <div>
+          <span className="text-slate-500">Flaw Len:</span>
+          <span className="font-bold text-slate-900 ml-1">{flaw.latestLength} mm</span>
+        </div>
+        <div>
+          <span className="text-slate-500">Depth:</span>
+          <span className="font-bold text-red-600 ml-1">{effDepth.toFixed(1)} mm ({depthPct}%)</span>
+        </div>
+        <div>
+          <span className="text-slate-500">Sound Wall:</span>
+          <span className="font-bold text-emerald-700 ml-1">{remainingWall.toFixed(1)} mm</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WeldWidthPlanPlot({
   indications,
   selectedFlawCode,
@@ -607,155 +737,9 @@ export function WeldWidthPlanPlot({
             </div>
 
             {/* If Hovering over an Indication: Render Live Double-V S-Scan Profile Cross-Section */}
-            {hoverCursor.hoveredFlaw ? (() => {
-              const hf = hoverCursor.hoveredFlaw;
-              const effDepth = hf.latestDepth || 3.0;
-              const nomWall = 32.0;
-              const depthPct = Math.min(100, Math.round((effDepth / nomWall) * 100));
-              const remainingWall = Math.max(0, nomWall - effDepth);
-              const textPos = (hf.weldPosition || "").toUpperCase();
-              const isOD = textPos.includes("OD");
-              const isBT = textPos.includes("BT") || textPos.includes("BOTTOM");
-
-              // Mini Bevel SVG Dimensions
-              const bW = 280;
-              const bH = 110;
-              const pLeft = 25;
-              const pRight = 255;
-              const pTop = 22;
-              const pBottom = 92;
-              const pThick = pBottom - pTop;
-              const wCenter = (pLeft + pRight) / 2;
-              const rootY = pBottom - (11.5 / nomWall) * pThick;
-
-              const odTT = wCenter - (22 / 55) * ((pRight - pLeft) / 2);
-              const odBT = wCenter + (22 / 55) * ((pRight - pLeft) / 2);
-              const idTT = wCenter - (11 / 55) * ((pRight - pLeft) / 2);
-              const idBT = wCenter + (11 / 55) * ((pRight - pLeft) / 2);
-
-              // Crack Geometry
-              const crackDepthPx = (Math.min(nomWall, effDepth) / nomWall) * pThick;
-              const originX = isBT ? (isOD ? odBT : idBT) : (isOD ? odTT : idTT);
-              const originY = isOD ? pTop : pBottom;
-              const tipX = originX + (isBT ? -4 : 4);
-              const tipY = isOD ? pTop + crackDepthPx : pBottom - crackDepthPx;
-
-              return (
-                <div className="space-y-2">
-                  {/* Mini Double-V Bevel Profile SVG */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 flex justify-center">
-                    <svg viewBox={`0 0 ${bW} ${bH}`} className="w-full h-auto max-w-[280px]">
-                      {/* Plate Boundary */}
-                      <rect
-                        x={pLeft}
-                        y={pTop}
-                        width={pRight - pLeft}
-                        height={pThick}
-                        fill="#ffffff"
-                        stroke="#0f172a"
-                        strokeWidth="1.8"
-                      />
-
-                      {/* Stainless Clad Layer at ID Bottom */}
-                      <rect
-                        x={pLeft}
-                        y={pBottom - (3.0 / nomWall) * pThick}
-                        width={pRight - pLeft}
-                        height={(3.0 / nomWall) * pThick}
-                        fill="#38bdf8"
-                        fillOpacity="0.18"
-                        stroke="#0284c7"
-                        strokeWidth="0.8"
-                        strokeDasharray="2 2"
-                      />
-
-                      {/* Double-V Weld Metal Fill */}
-                      <polygon
-                        points={`${odTT},${pTop} ${odBT},${pTop} ${wCenter + 2},${rootY} ${wCenter - 2},${rootY}`}
-                        fill="#cbd5e1"
-                        stroke="#64748b"
-                        strokeWidth="0.8"
-                      />
-                      <polygon
-                        points={`${idTT},${pBottom} ${wCenter - 2},${rootY} ${wCenter + 2},${rootY} ${idBT},${pBottom}`}
-                        fill="#cbd5e1"
-                        stroke="#64748b"
-                        strokeWidth="0.8"
-                      />
-
-                      {/* Weld Centerline */}
-                      <line
-                        x1={wCenter}
-                        y1={pTop - 6}
-                        x2={wCenter}
-                        y2={pBottom + 6}
-                        stroke="#16a34a"
-                        strokeWidth="1"
-                        strokeDasharray="3 2"
-                      />
-
-                      {/* Surface Labels */}
-                      <text x={pLeft - 4} y={pTop + 4} textAnchor="end" fontSize="8" fontWeight="800" fill="#0f172a">OD</text>
-                      <text x={pLeft - 4} y={pBottom} textAnchor="end" fontSize="8" fontWeight="800" fill="#0f172a">ID</text>
-
-                      {/* Toe Labels */}
-                      <text x={odTT} y={pTop - 4} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">TT</text>
-                      <text x={odBT} y={pTop - 4} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">BT</text>
-                      <text x={idTT} y={pBottom + 8} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">TT</text>
-                      <text x={idBT} y={pBottom + 8} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#475569">BT</text>
-
-                      {/* Crack Propagation Path */}
-                      <line
-                        x1={originX}
-                        y1={originY}
-                        x2={tipX}
-                        y2={tipY}
-                        stroke={isOD ? "#ea580c" : "#dc2626"}
-                        strokeWidth="2.4"
-                        strokeLinecap="round"
-                      />
-                      <circle cx={originX} cy={originY} r="2.5" fill={isOD ? "#c2410c" : "#b91c1c"} />
-
-                      {/* Ultrasonic Tip Heatmap Echo */}
-                      <circle cx={tipX} cy={tipY} r="6" fill="#f87171" fillOpacity="0.4" />
-                      <circle cx={tipX} cy={tipY} r="2" fill="#991b1b" />
-
-                      {/* In-situ Depth Callout */}
-                      <text
-                        x={tipX + (tipX > wCenter ? -8 : 8)}
-                        y={tipY + (isOD ? 8 : -4)}
-                        textAnchor={tipX > wCenter ? "end" : "start"}
-                        fontSize="8.5"
-                        fontWeight="bold"
-                        fill={isOD ? "#ea580c" : "#dc2626"}
-                      >
-                        {isOD ? "OD" : "ID"}: {effDepth.toFixed(1)}mm ({depthPct}%)
-                      </text>
-                    </svg>
-                  </div>
-
-                  {/* Quantitative Inspection Summary */}
-                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-100 text-[11px]">
-                    <div>
-                      <span className="text-slate-500">Scan Pos:</span>
-                      <span className="font-bold text-slate-900 ml-1">{hf.circumferentialPosition} mm</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Flaw Len:</span>
-                      <span className="font-bold text-slate-900 ml-1">{hf.latestLength} mm</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Depth:</span>
-                      <span className="font-bold text-red-600 ml-1">{effDepth.toFixed(1)} mm ({depthPct}%)</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Sound Wall:</span>
-                      <span className="font-bold text-emerald-700 ml-1">{remainingWall.toFixed(1)} mm</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })() : (
+            {hoverCursor.hoveredFlaw ? (
+              <MiniBevelSScanPreview flaw={hoverCursor.hoveredFlaw} nominalWall={32.0} />
+            ) : (
               <div className="space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-500">ScanLength:</span>
@@ -773,6 +757,7 @@ export function WeldWidthPlanPlot({
               </div>
             )}
           </div>
+        )}
       </div>
 
       {/* Depth Severity Color Scale & Weld Guidelines Legend */}
