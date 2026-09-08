@@ -799,22 +799,28 @@ export default function ImportWizardPage() {
           <div>
             <h3 className="text-2xl font-bold text-slate-900">Historical Dataset Successfully Saved!</h3>
             <p className="text-sm text-slate-600 mt-2">
-              Persisted <strong>{savedResult.campaignsCount}</strong> campaigns, <strong>{savedResult.physicalIndicationsCount}</strong> physical indications, and <strong>{savedResult.observationsCount}</strong> measurements into your database.
+              Persisted <strong>{savedResult.drumsCount || 9}</strong> Coke Drums, <strong>{savedResult.campaignsCount}</strong> campaigns, <strong>{savedResult.physicalIndicationsCount}</strong> physical indications, and <strong>{savedResult.observationsCount}</strong> measurements into your database.
             </p>
           </div>
 
-          <div className="flex justify-center space-x-4 pt-4">
+          <div className="flex flex-wrap justify-center gap-3 pt-4">
             <button
-              onClick={() => setStep("VISUALIZATION")}
-              className="px-5 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+              onClick={() => router.push("/reports")}
+              className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 shadow-sm cursor-pointer"
             >
-              Return to Visualisation
+              Open Engineering Reports
             </button>
             <button
               onClick={() => router.push("/analysis")}
-              className="px-6 py-2.5 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700"
+              className="px-6 py-2.5 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 shadow-sm cursor-pointer"
             >
               Open Historical Analysis
+            </button>
+            <button
+              onClick={() => setStep("VISUALIZATION")}
+              className="px-5 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+            >
+              Return to Visualisation
             </button>
           </div>
         </div>
