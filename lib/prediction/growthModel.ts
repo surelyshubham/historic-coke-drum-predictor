@@ -66,9 +66,13 @@ export interface ForecastPoint {
   depth: number;
   depthLower: number;
   depthUpper: number;
+  depthSafetyUpper?: number;
+  depthSafetyLower?: number;
   length: number;
   lengthLower: number;
   lengthUpper: number;
+  lengthSafetyUpper?: number;
+  lengthSafetyLower?: number;
   isHistorical: boolean;
   campaignName?: string;
 }
@@ -76,6 +80,7 @@ export interface ForecastPoint {
 export interface PredictionResult {
   modelType: PredictionModelType;
   scenario: ScenarioType;
+  safetyMarginPercent: number; // e.g. 30 for ±30%
   fitParams: ModelFitParameters;
   thresholds: ThresholdConfig;
   exceedance: ThresholdExceedanceResult;
@@ -167,6 +172,7 @@ export function generateGrowthPrediction(
   options?: {
     modelType?: PredictionModelType;
     scenario?: ScenarioType;
+    safetyMarginPercent?: number; // default 30 for ±30%
     thresholds?: Partial<ThresholdConfig>;
     forecastYears?: number; // default 5 years
     stepMonths?: number; // default 3 months
@@ -174,6 +180,9 @@ export function generateGrowthPrediction(
 ): PredictionResult {
   const modelType = options?.modelType ?? 'LINEAR';
   const scenario = options?.scenario ?? 'MODERATE';
+  const safetyMarginPercent = typeof options?.safetyMarginPercent === 'number'
+    ? Math.max(0, Math.min(100, options.safetyMarginPercent))
+    : 30;
   const forecastYears = options?.forecastYears ?? 5;
   const stepMonths = options?.stepMonths ?? 3;
 
@@ -220,18 +229,19 @@ export function generateGrowthPrediction(
     lengthStdError: modelType === 'LINEAR' ? linLength.stdError : expLength.stdError,
   };
 
-  // Determine scenario multipliers / adjustments
+  // Determine scenario multipliers / adjustments based on customizable safetyMarginPercent
+  const safeFraction = safetyMarginPercent / 100.0;
   let depthRateMultiplier = 1.0;
   let lengthRateMultiplier = 1.0;
   let confidenceZ = 1.0; // Moderate: 1 sigma fan-out
 
   if (scenario === 'CONSERVATIVE') {
-    depthRateMultiplier = 1.35; // 35% conservative buffer
-    lengthRateMultiplier = 1.35;
+    depthRateMultiplier = 1.0 + safeFraction; // e.g. +30% => 1.30
+    lengthRateMultiplier = 1.0 + safeFraction;
     confidenceZ = 1.96; // 95% confidence bounds
   } else if (scenario === 'OPTIMISTIC') {
-    depthRateMultiplier = 0.7; // 30% lower rate
-    lengthRateMultiplier = 0.7;
+    depthRateMultiplier = Math.max(0.05, 1.0 - safeFraction); // e.g. -30% => 0.70
+    lengthRateMultiplier = Math.max(0.05, 1.0 - safeFraction);
     confidenceZ = 0.67; // tighter bound
   }
 
@@ -239,21 +249,21 @@ export function generateGrowthPrediction(
   const latestLength = sorted[sorted.length - 1].length;
   const latestTimeYears = (latestDate.getTime() - baseDate.getTime()) / msPerYear;
 
-  // Predict function for given t (years from baseline)
-  const predictAtTime = (t: number) => {
+  // Predict function for given t (years from baseline) with customizable rate multiplier
+  const predictAtTime = (t: number, customMultiplier = depthRateMultiplier, customLenMultiplier = lengthRateMultiplier) => {
     let predDepth = 0;
     let predLength = 0;
 
     if (sorted.length === 1) {
       // Single observation point: use industry standard nominal growth rate (0.8 mm/yr depth, 8 mm/yr length)
       const dt = t - latestTimeYears;
-      const baseDepthRate = 0.8 * depthRateMultiplier;
-      const baseLengthRate = 8.0 * lengthRateMultiplier;
+      const baseDepthRate = 0.8 * customMultiplier;
+      const baseLengthRate = 8.0 * customLenMultiplier;
       predDepth = latestDepth + Math.max(0, dt) * baseDepthRate;
       predLength = latestLength + Math.max(0, dt) * baseLengthRate;
     } else if (modelType === 'LINEAR') {
-      const nominalDepthRate = Math.max(0, linDepth.slope) * depthRateMultiplier;
-      const nominalLengthRate = Math.max(0, linLength.slope) * lengthRateMultiplier;
+      const nominalDepthRate = Math.max(0, linDepth.slope) * customMultiplier;
+      const nominalLengthRate = Math.max(0, linLength.slope) * customLenMultiplier;
       const dt = t - latestTimeYears;
       if (dt <= 0) {
         predDepth = linDepth.intercept + linDepth.slope * t;
@@ -264,8 +274,8 @@ export function generateGrowthPrediction(
       }
     } else {
       // Exponential
-      const nominalExpRate = Math.max(0, expDepth.rate) * depthRateMultiplier;
-      const nominalLenExpRate = Math.max(0, expLength.rate) * lengthRateMultiplier;
+      const nominalExpRate = Math.max(0, expDepth.rate) * customMultiplier;
+      const nominalLenExpRate = Math.max(0, expLength.rate) * customLenMultiplier;
       const dt = t - latestTimeYears;
       if (dt <= 0) {
         predDepth = expDepth.intercept * Math.exp(expDepth.rate * t);
@@ -373,9 +383,13 @@ export function generateGrowthPrediction(
       depth: h.depth,
       depthLower: h.depth,
       depthUpper: h.depth,
+      depthSafetyUpper: h.depth,
+      depthSafetyLower: h.depth,
       length: h.length,
       lengthLower: h.length,
       lengthUpper: h.length,
+      lengthSafetyUpper: h.length,
+      lengthSafetyLower: h.length,
       isHistorical: true,
       campaignName: h.campaignName,
     });
@@ -387,6 +401,8 @@ export function generateGrowthPrediction(
     const futureDate = new Date(latestDate.getTime() + (m / 12) * msPerYear);
     const t = (futureDate.getTime() - baseDate.getTime()) / msPerYear;
     const pred = predictAtTime(t);
+    const predUpperSafe = predictAtTime(t, 1.0 + safeFraction, 1.0 + safeFraction);
+    const predLowerSafe = predictAtTime(t, Math.max(0.05, 1.0 - safeFraction), Math.max(0.05, 1.0 - safeFraction));
 
     timeSeries.push({
       date: futureDate.toISOString().split('T')[0],
@@ -395,9 +411,13 @@ export function generateGrowthPrediction(
       depth: Number(pred.depth.toFixed(2)),
       depthLower: Number(pred.depthLower.toFixed(2)),
       depthUpper: Number(pred.depthUpper.toFixed(2)),
+      depthSafetyUpper: Number(predUpperSafe.depth.toFixed(2)),
+      depthSafetyLower: Number(predLowerSafe.depth.toFixed(2)),
       length: Number(pred.length.toFixed(1)),
       lengthLower: Number(pred.lengthLower.toFixed(1)),
       lengthUpper: Number(pred.lengthUpper.toFixed(1)),
+      lengthSafetyUpper: Number(predUpperSafe.length.toFixed(1)),
+      lengthSafetyLower: Number(predLowerSafe.length.toFixed(1)),
       isHistorical: false,
     });
   }
@@ -405,6 +425,7 @@ export function generateGrowthPrediction(
   return {
     modelType,
     scenario,
+    safetyMarginPercent,
     fitParams,
     thresholds,
     exceedance: {

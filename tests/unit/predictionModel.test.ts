@@ -138,4 +138,39 @@ describe('Prediction Engine — Mathematical Models & Thresholds', () => {
 
     expect(result.exceedance.riskTier).toBe('CRITICAL');
   });
+
+  it('accurately applies user-customizable safety margin buffer (e.g. ±30% and ±50%)', () => {
+    const baseModerate = generateGrowthPrediction(sampleMeasurements, {
+      modelType: 'LINEAR',
+      scenario: 'MODERATE',
+      safetyMarginPercent: 30,
+    });
+
+    const safe30 = generateGrowthPrediction(sampleMeasurements, {
+      modelType: 'LINEAR',
+      scenario: 'CONSERVATIVE',
+      safetyMarginPercent: 30,
+    });
+
+    const safe50 = generateGrowthPrediction(sampleMeasurements, {
+      modelType: 'LINEAR',
+      scenario: 'CONSERVATIVE',
+      safetyMarginPercent: 50,
+    });
+
+    // 50% safety buffer should produce an equal or higher conservative growth rate than 30%
+    expect(safe50.annualDepthRateMmYear).toBeGreaterThanOrEqual(safe30.annualDepthRateMmYear);
+    expect(safe30.annualDepthRateMmYear).toBeGreaterThanOrEqual(baseModerate.annualDepthRateMmYear);
+
+    // Verify safe corridor points on timeSeries
+    const futurePts = baseModerate.timeSeries.filter(p => !p.isHistorical);
+    expect(futurePts.length).toBeGreaterThan(0);
+    const lastPt = futurePts[futurePts.length - 1];
+
+    expect(lastPt.depthSafetyUpper).toBeDefined();
+    expect(lastPt.depthSafetyLower).toBeDefined();
+    expect(lastPt.depthSafetyUpper!).toBeGreaterThanOrEqual(lastPt.depth);
+    expect(lastPt.depthSafetyLower!).toBeLessThanOrEqual(lastPt.depth);
+    expect(baseModerate.safetyMarginPercent).toBe(30);
+  });
 });

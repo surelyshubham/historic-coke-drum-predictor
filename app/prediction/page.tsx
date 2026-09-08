@@ -34,6 +34,7 @@ export default function PredictiveModelingPage() {
   const [nominalWallThickness, setNominalWallThickness] = useState<number>(32.0);
   const [warningPercent, setWarningPercent] = useState<number>(80);
   const [criticalPercent, setCriticalPercent] = useState<number>(100);
+  const [safetyMarginPercent, setSafetyMarginPercent] = useState<number>(30); // User customizable safety margin buffer (default ±30%)
   const [warningColor, setWarningColor] = useState<string>("#f59e0b"); // Amber
   const [criticalColor, setCriticalColor] = useState<string>("#ef4444"); // Red
   const [curveColor, setCurveColor] = useState<string>("#0284c7"); // Sky blue
@@ -60,7 +61,7 @@ export default function PredictiveModelingPage() {
   const loadOverview = async (drumId?: number) => {
     setLoading(true);
     try {
-      const res = await getPredictionOverview(drumId);
+      const res = await getPredictionOverview(drumId, { safetyMarginPercent });
       setOverview(res);
       setSelectedDrumId(res.selectedDrum.id);
       setNominalWallThickness(res.selectedDrum.nominalThickness || 32.0);
@@ -75,7 +76,7 @@ export default function PredictiveModelingPage() {
     }
   };
 
-  // Re-fetch or re-calculate projection when indication, model, scenario, or thresholds change
+  // Re-fetch or re-calculate projection when indication, model, scenario, safety margin, or thresholds change
   useEffect(() => {
     if (!selectedIndicationId) return;
 
@@ -85,6 +86,7 @@ export default function PredictiveModelingPage() {
     calculateIndicationProjection(selectedIndicationId, {
       modelType,
       scenario,
+      safetyMarginPercent,
       thresholds: {
         nominalWallThickness,
         warningThresholdPercent: warningPercent,
@@ -103,7 +105,7 @@ export default function PredictiveModelingPage() {
     return () => {
       isMounted = false;
     };
-  }, [selectedIndicationId, modelType, scenario, nominalWallThickness, warningPercent, criticalPercent]);
+  }, [selectedIndicationId, modelType, scenario, safetyMarginPercent, nominalWallThickness, warningPercent, criticalPercent]);
 
   const selectedIndication = useMemo(() => {
     return overview?.indications.find((i) => i.id === selectedIndicationId) || null;
@@ -226,6 +228,7 @@ export default function PredictiveModelingPage() {
   const resetThresholds = () => {
     setWarningPercent(80);
     setCriticalPercent(100);
+    setSafetyMarginPercent(30);
     setWarningColor("#f59e0b");
     setCriticalColor("#ef4444");
     setCurveColor("#0284c7");
@@ -353,6 +356,10 @@ export default function PredictiveModelingPage() {
                 </span>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
                   {selectedIndication?.weldName} @ {Math.round(selectedIndication?.circumferentialPosition || 0)}mm
+                </span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                  <ShieldAlert size={12} className="text-amber-600" />
+                  <span>±{safetyMarginPercent}% Safety Buffer</span>
                 </span>
                 {projectionLoading && (
                   <span className="text-xs text-sky-600 animate-pulse font-medium">Computing...</span>
@@ -721,6 +728,60 @@ export default function PredictiveModelingPage() {
                   </g>
                 )}
 
+                {/* Safe Upper Bound Curve (+X% User Safety Buffer) */}
+                {chartConfig.hasData && projection && safetyMarginPercent > 0 && (
+                  <g className="safety-margin-bound">
+                    {(() => {
+                      const hist = projection.timeSeries.filter((p) => p.isHistorical);
+                      const future = projection.timeSeries.filter((p) => !p.isHistorical);
+                      if (future.length === 0) return null;
+
+                      const anchor = hist.length > 0 ? hist[hist.length - 1] : future[0];
+                      const pts = [anchor, ...future];
+
+                      const pathData = pts.map((p, i) => {
+                        const x = chartConfig.scaleX(p.timestamp);
+                        const val = displayMetric === "DEPTH" 
+                          ? (p.depthSafetyUpper ?? p.depthUpper) 
+                          : (p.lengthSafetyUpper ?? p.lengthUpper);
+                        const y = chartConfig.scaleY(val);
+                        return `${i === 0 ? "M" : "L"} ${x} ${y}`;
+                      }).join(" ");
+
+                      const lastPt = pts[pts.length - 1];
+                      const lx = chartConfig.scaleX(lastPt.timestamp);
+                      const ly = chartConfig.scaleY(
+                        displayMetric === "DEPTH" 
+                          ? (lastPt.depthSafetyUpper ?? lastPt.depthUpper) 
+                          : (lastPt.lengthSafetyUpper ?? lastPt.lengthUpper)
+                      );
+
+                      return (
+                        <g>
+                          <path
+                            d={pathData}
+                            fill="none"
+                            stroke="#f97316"
+                            strokeWidth="1.75"
+                            strokeDasharray="4 3"
+                            strokeOpacity="0.9"
+                          />
+                          <text
+                            x={Math.min(chartConfig.width - chartConfig.margin.right - 10, lx + 5)}
+                            y={Math.max(chartConfig.margin.top + 14, ly - 6)}
+                            fontSize="9"
+                            fontWeight="bold"
+                            fill="#ea580c"
+                            fontFamily="sans-serif"
+                          >
+                            +{safetyMarginPercent}% Safe Bound
+                          </text>
+                        </g>
+                      );
+                    })()}
+                  </g>
+                )}
+
                 {/* Solid Historical Measurements Curve */}
                 {chartConfig.hasData && projection && (
                   <g className="historical-curve">
@@ -846,12 +907,22 @@ export default function PredictiveModelingPage() {
                     </div>
 
                     {!hoverData.point.isHistorical && (
-                      <div className="flex justify-between text-[11px] text-slate-500">
-                        <span>Confidence Fan:</span>
-                        <span className="font-mono">
-                          [{hoverData.point.depthLower.toFixed(1)} - {hoverData.point.depthUpper.toFixed(1)}] mm
-                        </span>
-                      </div>
+                      <>
+                        <div className="flex justify-between text-[11px] text-slate-500">
+                          <span>Confidence Fan:</span>
+                          <span className="font-mono">
+                            [{hoverData.point.depthLower.toFixed(1)} - {hoverData.point.depthUpper.toFixed(1)}] mm
+                          </span>
+                        </div>
+                        {hoverData.point.depthSafetyUpper && safetyMarginPercent > 0 && (
+                          <div className="flex justify-between text-[11px] text-orange-800 bg-orange-50/90 px-1.5 py-0.5 rounded font-medium">
+                            <span>Safe Upper (+{safetyMarginPercent}%):</span>
+                            <span className="font-mono font-bold">
+                              {hoverData.point.depthSafetyUpper.toFixed(2)} mm
+                            </span>
+                          </div>
+                        )}
+                      </>
                     )}
 
                     <div className="flex justify-between">
@@ -980,6 +1051,46 @@ export default function PredictiveModelingPage() {
                   />
                   <span className="text-slate-500">mm</span>
                 </div>
+              </div>
+
+              {/* Safety Margin Buffer Slider & Input (User Configurable ±%) */}
+              <div className="space-y-1.5 pt-3 border-t border-slate-100">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                    <ShieldAlert size={14} className="text-sky-600" />
+                    <span>Safety Margin Buffer:</span>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-sky-800 font-bold font-mono">±</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      step="1"
+                      value={safetyMarginPercent}
+                      onChange={(e) => setSafetyMarginPercent(Math.max(0, Math.min(60, Number(e.target.value))))}
+                      className="w-14 px-1.5 py-0.5 border border-sky-300 rounded font-mono text-right text-xs font-bold text-sky-800 focus:ring-1 focus:ring-sky-500"
+                    />
+                    <span className="text-xs text-sky-800 font-bold">%</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="60"
+                  step="5"
+                  value={safetyMarginPercent}
+                  onChange={(e) => setSafetyMarginPercent(Number(e.target.value))}
+                  className="w-full accent-sky-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span>0% (Raw)</span>
+                  <span className="text-sky-600 font-semibold">±30% (Default Safe)</span>
+                  <span>±60% (Max Safe)</span>
+                </div>
+                <p className="text-[11px] text-slate-500 italic">
+                  Applies a ±{safetyMarginPercent}% safe envelope to crack growth rates to guarantee conservative planning and early turnaround notification.
+                </p>
               </div>
             </div>
 

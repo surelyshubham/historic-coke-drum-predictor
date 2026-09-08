@@ -62,7 +62,10 @@ export interface PredictionOverviewResponse {
   indications: IndicationOverviewItem[];
 }
 
-export async function getPredictionOverview(drumId?: number): Promise<PredictionOverviewResponse> {
+export async function getPredictionOverview(
+  drumId?: number,
+  options?: { safetyMarginPercent?: number }
+): Promise<PredictionOverviewResponse> {
   const session = await auth();
   if (!session?.user) {
     throw new Error("Unauthorized: Please sign in.");
@@ -139,6 +142,7 @@ export async function getPredictionOverview(drumId?: number): Promise<Prediction
       const pred = generateGrowthPrediction(measurements, {
         modelType: 'LINEAR',
         scenario: 'MODERATE',
+        safetyMarginPercent: options?.safetyMarginPercent,
         thresholds: { nominalWallThickness: nominalThickness },
       });
 
@@ -197,6 +201,7 @@ export async function getPredictionOverview(drumId?: number): Promise<Prediction
       const pred = generateGrowthPrediction(measurements, {
         modelType: 'LINEAR',
         scenario: 'MODERATE',
+        safetyMarginPercent: options?.safetyMarginPercent,
         thresholds: { nominalWallThickness: nominalThickness },
       });
 
@@ -290,6 +295,7 @@ export async function calculateIndicationProjection(
   options?: {
     modelType?: PredictionModelType;
     scenario?: ScenarioType;
+    safetyMarginPercent?: number;
     thresholds?: Partial<ThresholdConfig>;
     forecastYears?: number;
   }
