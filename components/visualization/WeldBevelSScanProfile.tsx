@@ -23,6 +23,9 @@ export function WeldBevelSScanProfile({
     zone: string;
   } | null>(null);
 
+  // Surface view filter: "BOTH" | "ID" | "OD"
+  const [surfaceFilter, setSurfaceFilter] = useState<"BOTH" | "ID" | "OD">("BOTH");
+
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   // SVG Geometry for Tall Vertical Through-Thickness Slice
@@ -31,7 +34,7 @@ export function WeldBevelSScanProfile({
   const height = 640;
 
   // Tall vertical plate slice representing vessel shell wall
-  const plateWidth = 170; // Represents nominalWallThickness (default 32.0 mm)
+  const plateWidth = 170; // Represents nominalWallThickness (user configured)
   const plateHeight = 500; // Represents shell height (-55 mm to +55 mm)
   const plateLeft = (width - plateWidth) / 2; // 145 px
   const plateRight = plateLeft + plateWidth; // 315 px
@@ -61,79 +64,114 @@ export function WeldBevelSScanProfile({
     return ((weldCenterY - yPx) / (plateHeight / 2)) * ySpanMm;
   };
 
-  // Double-V Bevel Geometry (matching user reference drawing media_1788721266007.png):
-  // Root face at ~11.5 mm from ID
-  const rootDepthMm = 11.5;
-  const rootX = scaleX(rootDepthMm); // ~206 px
+  // Double-V Bevel Geometry (dynamically scaled to nominal wall thickness):
+  // Root face at ~11.5 mm scaled proportionally
+  const rootDepthMm = Number((11.5 * (nominalWallThickness / 32.0)).toFixed(1));
+  const rootX = scaleX(rootDepthMm);
 
   // ID Side (Left): Narrower and shorter bevel
-  // Top Toe (TT): y = +11 mm (~50 px above center)
-  // Bottom Toe (BT): y = -11 mm (~50 px below center)
   const idBevelTopYMm = 11.0;
   const idBevelBottomYMm = -11.0;
   const idTtY = scaleY(idBevelTopYMm);
   const idBtY = scaleY(idBevelBottomYMm);
 
   // OD Side (Right): Wider and taller bevel
-  // Top Toe (TT): y = +22 mm (~100 px above center)
-  // Bottom Toe (BT): y = -22 mm (~100 px below center)
   const odBevelTopYMm = 22.0;
   const odBevelBottomYMm = -22.0;
   const odTtY = scaleY(odBevelTopYMm);
   const odBtY = scaleY(odBevelBottomYMm);
 
-  // Defect parameters from indication
-  const crackDepthMm = Math.max(1.0, Math.min(nominalWallThickness, indication.latestDepth || 5.6));
-  const isTopToe = (indication.weldPosition || "").toUpperCase().includes("TT") || !(indication.weldPosition || "").toUpperCase().includes("BT");
-  const isOdInitiated = (indication.weldPosition || "").toUpperCase().includes("OD");
+  // Dynamic Defect Parameters from Indication (Extracting both ID and OD measurements)
+  const indAny = indication as unknown as Record<string, unknown>;
+  const depthIdMm: number | null = typeof indAny.latestDepthId === 'number'
+    ? indAny.latestDepthId
+    : (typeof indAny.currentDepthId === 'number'
+        ? indAny.currentDepthId
+        : ((indication.weldPosition || "").toUpperCase().includes("OD") ? null : (indication.latestDepth || 5.5)));
 
-  // Generate the organic propagating crack curve (Red wavy line) strictly scaled by depth
-  const crackCurvePath = useMemo(() => {
-    const crackDepthPx = (crackDepthMm / nominalWallThickness) * plateWidth;
+  const depthOdMm: number | null = typeof indAny.latestDepthOd === 'number'
+    ? indAny.latestDepthOd
+    : (typeof indAny.currentDepthOd === 'number'
+        ? indAny.currentDepthOd
+        : ((indication.weldPosition || "").toUpperCase().includes("OD") ? (indication.latestDepth || 4.5) : null));
 
-    if (!isOdInitiated) {
-      // Initiates at ID Top Toe (or Bottom Toe) on the left surface and propagates horizontally rightwards toward OD
-      const startX = plateLeft;
-      const startY = isTopToe ? idTtY : idBtY;
-      const endX = plateLeft + crackDepthPx;
-      const endY = startY + (isTopToe ? 6 : -6);
+  const hasIdCrack = depthIdMm !== null && depthIdMm > 0;
+  const hasOdCrack = depthOdMm !== null && depthOdMm > 0;
 
-      // Natural propagating crack waviness through HAZ
-      const cp1X = startX + crackDepthPx * 0.35;
-      const cp1Y = startY - (isTopToe ? 5 : -5);
-      const cp2X = startX + crackDepthPx * 0.70;
-      const cp2Y = startY + (isTopToe ? 7 : -7);
+  // Parsed offset from "30MM TT", "50MM BT" etc.
+  const offsetMm: number = typeof indAny.offsetMm === 'number' ? indAny.offsetMm : 0;
+  const toeType: string = typeof indAny.toeType === 'string' ? indAny.toeType : '';
+  const isTopToe = toeType === 'TT' || (indication.weldPosition || "").toUpperCase().includes("TT");
+  const isBottomToe = toeType === 'BT' || (indication.weldPosition || "").toUpperCase().includes("BT");
 
-      return {
-        d: `M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY}`,
-        tipX: endX,
-        tipY: endY,
-        originX: startX,
-        originY: startY,
-        originLabel: isTopToe ? "ID Top Toe (TT)" : "ID Bottom Toe (BT)",
-      };
-    } else {
-      // Initiates at OD Top Toe (or Bottom Toe) on the right surface and propagates horizontally leftwards toward ID
-      const startX = plateRight;
-      const startY = isTopToe ? odTtY : odBtY;
-      const endX = plateRight - crackDepthPx;
-      const endY = startY + (isTopToe ? 6 : -6);
+  // Dynamic Vertical Crack Origins based on actual parsed offsets from data
+  const idOriginY = offsetMm > 0
+    ? (isBottomToe ? scaleY(-offsetMm) : scaleY(offsetMm))
+    : (isBottomToe ? idBtY : idTtY);
 
-      const cp1X = startX - crackDepthPx * 0.35;
-      const cp1Y = startY - (isTopToe ? 5 : -5);
-      const cp2X = startX - crackDepthPx * 0.70;
-      const cp2Y = startY + (isTopToe ? 7 : -7);
+  const odOriginY = offsetMm > 0
+    ? (isBottomToe ? scaleY(-offsetMm) : scaleY(offsetMm))
+    : (isBottomToe ? odBtY : odTtY);
 
-      return {
-        d: `M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY}`,
-        tipX: endX,
-        tipY: endY,
-        originX: startX,
-        originY: startY,
-        originLabel: isTopToe ? "OD Top Toe (TT)" : "OD Bottom Toe (BT)",
-      };
-    }
-  }, [crackDepthMm, isTopToe, isOdInitiated, idTtY, idBtY, odTtY, odBtY, plateLeft, plateRight, plateWidth, nominalWallThickness]);
+  const cladStatus = (indAny.cladStatus as string) || "INCLUDING";
+
+  // Generate ID Propagating Crack Curve (Penetrates from ID Left Edge towards OD)
+  const idCrackPath = useMemo(() => {
+    if (!hasIdCrack || depthIdMm === null) return null;
+    const crackDepth = Math.max(1.0, Math.min(nominalWallThickness, depthIdMm));
+    const crackDepthPx = (crackDepth / nominalWallThickness) * plateWidth;
+
+    const startX = plateLeft;
+    const startY = idOriginY;
+    const endX = plateLeft + crackDepthPx;
+    const endY = startY + (isTopToe ? 6 : -6);
+
+    const cp1X = startX + crackDepthPx * 0.35;
+    const cp1Y = startY - (isTopToe ? 5 : -5);
+    const cp2X = startX + crackDepthPx * 0.70;
+    const cp2Y = startY + (isTopToe ? 7 : -7);
+
+    return {
+      d: `M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY}`,
+      tipX: endX,
+      tipY: endY,
+      originX: startX,
+      originY: startY,
+      depthMm: crackDepth,
+      label: offsetMm > 0 ? `${offsetMm}mm ID ${isBottomToe ? 'BT' : 'TT'}` : `ID ${isBottomToe ? 'BT' : 'TT'}`,
+    };
+  }, [hasIdCrack, depthIdMm, nominalWallThickness, plateLeft, plateWidth, idOriginY, isTopToe, isBottomToe, offsetMm]);
+
+  // Generate OD Propagating Defect Curve (Penetrates from OD Right Edge towards ID)
+  const odCrackPath = useMemo(() => {
+    if (!hasOdCrack || depthOdMm === null) return null;
+    const crackDepth = Math.max(1.0, Math.min(nominalWallThickness, depthOdMm));
+    const crackDepthPx = (crackDepth / nominalWallThickness) * plateWidth;
+
+    const startX = plateRight;
+    const startY = odOriginY;
+    const endX = plateRight - crackDepthPx;
+    const endY = startY + (isTopToe ? 6 : -6);
+
+    const cp1X = startX - crackDepthPx * 0.35;
+    const cp1Y = startY - (isTopToe ? 5 : -5);
+    const cp2X = startX - crackDepthPx * 0.70;
+    const cp2Y = startY + (isTopToe ? 7 : -7);
+
+    return {
+      d: `M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY}`,
+      tipX: endX,
+      tipY: endY,
+      originX: startX,
+      originY: startY,
+      depthMm: crackDepth,
+      label: offsetMm > 0 ? `${offsetMm}mm OD ${isBottomToe ? 'BT' : 'TT'}` : `OD ${isBottomToe ? 'BT' : 'TT'}`,
+    };
+  }, [hasOdCrack, depthOdMm, nominalWallThickness, plateRight, plateWidth, odOriginY, isTopToe, isBottomToe, offsetMm]);
+
+  // Sound Ligament Calculation (Remaining uncracked wall)
+  const totalFlawPenetration = (hasIdCrack ? (depthIdMm || 0) : 0) + (hasOdCrack ? (depthOdMm || 0) : 0);
+  const soundWallRemainingMm = Number(Math.max(0, nominalWallThickness - totalFlawPenetration).toFixed(1));
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -155,10 +193,11 @@ export function WeldBevelSScanProfile({
     const distanceFromOdMm = Number((nominalWallThickness - depthFromIdMm).toFixed(1));
     const offsetFromCenterlineMm = Number(invertY(yPx).toFixed(1));
     const percentOfWallThickness = Number(((depthFromIdMm / nominalWallThickness) * 100).toFixed(1));
-    const remainingWallMm = Number(Math.max(0, nominalWallThickness - crackDepthMm).toFixed(1));
 
     let zone = "Base Metal (SA-387)";
-    if (depthFromIdMm <= rootDepthMm) {
+    if (depthFromIdMm <= 3.0) {
+      zone = "Type 410S Stainless Clad";
+    } else if (depthFromIdMm <= rootDepthMm) {
       if (Math.abs(offsetFromCenterlineMm) <= idBevelTopYMm * (1 - depthFromIdMm / rootDepthMm)) {
         zone = "ID Weld Metal";
       } else if (Math.abs(offsetFromCenterlineMm) <= idBevelTopYMm * 1.35) {
@@ -180,7 +219,7 @@ export function WeldBevelSScanProfile({
       distanceFromOdMm,
       offsetFromCenterlineMm,
       percentOfWallThickness,
-      remainingWallMm,
+      remainingWallMm: soundWallRemainingMm,
       zone,
     });
   };
@@ -194,46 +233,53 @@ export function WeldBevelSScanProfile({
       {/* Title & Live Readout Ribbon */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
-          <h4 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>{indication.code} — Asymmetric Double-V Weld Cross-Section</span>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-bold text-slate-900 tracking-tight">
+              {indication.code} — Asymmetric Double-V Weld Cross-Section
+            </h4>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800 uppercase tracking-wide">
-              Full {nominalWallThickness.toFixed(1)} mm Wall
+              {nominalWallThickness.toFixed(1)} mm Wall
             </span>
-          </h4>
-          <p className="text-[11px] text-slate-500">
-            Through-thickness slice showing ID/OD surfaces, Double-V bevel, and {crackCurvePath.originLabel} crack propagation
+            {cladStatus && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cladStatus === "INCLUDING" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                Clad: {cladStatus}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Through-thickness slice showing ID (left) &amp; OD (right) surfaces • Position: <strong>{indication.weldPosition || "Weld Toe"}</strong>
           </p>
         </div>
 
-        {/* Live Coordinate Readout Ribbon */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
-          {hoverCursor ? (
-            <>
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-400 font-medium">Depth from ID:</span>
-                <span className="font-mono font-bold text-sky-800">{hoverCursor.depthFromIdMm} mm</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 font-semibold">
-                  {hoverCursor.percentOfWallThickness}%
-                </span>
-              </div>
-              <span className="text-slate-300">|</span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-400 font-medium">Offset:</span>
-                <span className="font-mono font-bold text-slate-900">
-                  {hoverCursor.offsetFromCenterlineMm > 0 ? `+${hoverCursor.offsetFromCenterlineMm}` : hoverCursor.offsetFromCenterlineMm} mm
-                </span>
-              </div>
-              <span className="text-slate-300">|</span>
-              <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
-                <span className="text-slate-400 font-normal">Zone:</span>
-                <span>{hoverCursor.zone}</span>
-              </div>
-            </>
-          ) : (
-            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
-              <span>🎯 Move cursor across the 32 mm cross-section to measure depth and remaining ligament</span>
-            </span>
-          )}
+        {/* Surface View Mode Selector */}
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg text-[11px] font-semibold">
+          <button
+            type="button"
+            onClick={() => setSurfaceFilter("BOTH")}
+            className={`px-2.5 py-1 rounded transition cursor-pointer ${
+              surfaceFilter === "BOTH" ? "bg-white text-slate-900 shadow-2xs font-bold" : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            Both ID &amp; OD
+          </button>
+          <button
+            type="button"
+            onClick={() => setSurfaceFilter("ID")}
+            className={`px-2.5 py-1 rounded transition cursor-pointer ${
+              surfaceFilter === "ID" ? "bg-white text-red-700 shadow-2xs font-bold" : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            ID ({hasIdCrack ? `${depthIdMm} mm` : "N/A"})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSurfaceFilter("OD")}
+            className={`px-2.5 py-1 rounded transition cursor-pointer ${
+              surfaceFilter === "OD" ? "bg-white text-amber-700 shadow-2xs font-bold" : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            OD ({hasOdCrack ? `${depthOdMm} mm` : "N/A"})
+          </button>
         </div>
       </div>
 
@@ -267,6 +313,29 @@ export function WeldBevelSScanProfile({
             stroke="#0f172a"
             strokeWidth="3.5"
           />
+
+          {/* Internal Stainless Steel Clad Layer (~3.0 mm on ID side) */}
+          <rect
+            x={plateLeft}
+            y={plateTop}
+            width={(3.0 / nominalWallThickness) * plateWidth}
+            height={plateHeight}
+            fill="#38bdf8"
+            fillOpacity="0.10"
+            stroke="#0284c7"
+            strokeWidth="1"
+            strokeDasharray="2 2"
+          />
+          <text
+            x={plateLeft + (1.5 / nominalWallThickness) * plateWidth}
+            y={plateTop + 14}
+            textAnchor="middle"
+            fontSize="8.5"
+            fontWeight="bold"
+            fill="#0284c7"
+          >
+            CLAD
+          </text>
 
           {/* Asymmetric Double-V Weld Metal Fill (Grey Hourglass matching reference drawing) */}
           {/* Left / ID Bevel Triangle: from ID (plateLeft) to Root (rootX) */}
@@ -403,81 +472,147 @@ export function WeldBevelSScanProfile({
             BT
           </text>
 
-          {/* Propagating Crack (Red Wavy Curve strictly scaled by depth) */}
-          <g className="propagating-crack">
-            {/* Glow backing */}
-            <path
-              d={crackCurvePath.d}
-              fill="none"
-              stroke="#fca5a5"
-              strokeWidth="6"
-              strokeLinecap="round"
-              strokeOpacity="0.45"
-            />
-            {/* Main Red Crack Path */}
-            <path
-              d={crackCurvePath.d}
-              fill="none"
-              stroke="#dc2626"
-              strokeWidth="3.2"
-              strokeLinecap="round"
-            />
+          {/* 1. Propagating ID Crack (Initiates at ID left surface, penetrates towards OD) */}
+          {(surfaceFilter === "BOTH" || surfaceFilter === "ID") && idCrackPath && (
+            <g className="propagating-id-crack">
+              {/* Glow backing */}
+              <path
+                d={idCrackPath.d}
+                fill="none"
+                stroke="#fca5a5"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeOpacity="0.45"
+              />
+              {/* Main Red Crack Path */}
+              <path
+                d={idCrackPath.d}
+                fill="none"
+                stroke="#dc2626"
+                strokeWidth="3.2"
+                strokeLinecap="round"
+              />
 
-            {/* Crack Origin Dot */}
-            <circle
-              cx={crackCurvePath.originX}
-              cy={crackCurvePath.originY}
-              r="3.5"
-              fill="#b91c1c"
-            />
+              {/* Crack Origin Dot on ID */}
+              <circle
+                cx={idCrackPath.originX}
+                cy={idCrackPath.originY}
+                r="3.5"
+                fill="#b91c1c"
+              />
 
-            {/* Ultrasonic Amplitude Echo Heatmap at Crack Tip */}
-            <circle
-              cx={crackCurvePath.tipX}
-              cy={crackCurvePath.tipY}
-              r="14"
-              fill={`url(#crackTipJet-${indication.code})`}
-            />
-            {/* Sharp Crack Tip Hotspot */}
-            <circle
-              cx={crackCurvePath.tipX}
-              cy={crackCurvePath.tipY}
-              r="3"
-              fill="#991b1b"
-            />
-          </g>
+              {/* Ultrasonic Amplitude Echo Heatmap at ID Crack Tip */}
+              <circle
+                cx={idCrackPath.tipX}
+                cy={idCrackPath.tipY}
+                r="14"
+                fill={`url(#crackTipJet-${indication.code})`}
+              />
+              <circle
+                cx={idCrackPath.tipX}
+                cy={idCrackPath.tipY}
+                r="3"
+                fill="#991b1b"
+              />
 
-          {/* Crack Depth Callout Annotation */}
-          <g
-            transform={`translate(${
-              isOdInitiated
-                ? Math.max(10, crackCurvePath.tipX - 145)
-                : Math.min(width - 155, crackCurvePath.tipX + 12)
-            }, ${crackCurvePath.tipY - 14})`}
-          >
-            <rect
-              x="0"
-              y="0"
-              width="142"
-              height="22"
-              rx="4"
-              fill="#ffffff"
-              fillOpacity="0.95"
-              stroke="#e2e8f0"
-              strokeWidth="1"
-            />
-            <text
-              x="71"
-              y="15"
-              textAnchor="middle"
-              fontSize="10"
-              fontWeight="bold"
-              fontFamily="sans-serif"
-              fill="#dc2626"
-            >
-              Crack Tip: {crackDepthMm.toFixed(1)} mm ({((crackDepthMm / nominalWallThickness) * 100).toFixed(0)}%)
-            </text>
-          </g>
+              {/* ID Crack Depth Callout Annotation */}
+              <g transform={`translate(${Math.min(width - 155, idCrackPath.tipX + 12)}, ${idCrackPath.tipY - 14})`}>
+                <rect
+                  x="0"
+                  y="0"
+                  width="142"
+                  height="22"
+                  rx="4"
+                  fill="#ffffff"
+                  fillOpacity="0.95"
+                  stroke="#e2e8f0"
+                  strokeWidth="1"
+                />
+                <text
+                  x="71"
+                  y="15"
+                  textAnchor="middle"
+                  fontSize="10"
+                  fontWeight="bold"
+                  fontFamily="sans-serif"
+                  fill="#dc2626"
+                >
+                  ID Depth: {idCrackPath.depthMm.toFixed(1)} mm ({((idCrackPath.depthMm / nominalWallThickness) * 100).toFixed(0)}%)
+                </text>
+              </g>
+            </g>
+          )}
+
+          {/* 2. Propagating OD Crack/Flaw (Initiates at OD right surface, penetrates towards ID) */}
+          {(surfaceFilter === "BOTH" || surfaceFilter === "OD") && odCrackPath && (
+            <g className="propagating-od-crack">
+              {/* Glow backing */}
+              <path
+                d={odCrackPath.d}
+                fill="none"
+                stroke="#fed7aa"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeOpacity="0.45"
+              />
+              {/* Main Amber-Red Crack Path */}
+              <path
+                d={odCrackPath.d}
+                fill="none"
+                stroke="#ea580c"
+                strokeWidth="3.2"
+                strokeLinecap="round"
+              />
+
+              {/* Crack Origin Dot on OD */}
+              <circle
+                cx={odCrackPath.originX}
+                cy={odCrackPath.originY}
+                r="3.5"
+                fill="#c2410c"
+              />
+
+              {/* Ultrasonic Amplitude Echo Heatmap at OD Crack Tip */}
+              <circle
+                cx={odCrackPath.tipX}
+                cy={odCrackPath.tipY}
+                r="14"
+                fill={`url(#crackTipJet-${indication.code})`}
+              />
+              <circle
+                cx={odCrackPath.tipX}
+                cy={odCrackPath.tipY}
+                r="3"
+                fill="#9a3412"
+              />
+
+              {/* OD Crack Depth Callout Annotation */}
+              <g transform={`translate(${Math.max(10, odCrackPath.tipX - 145)}, ${odCrackPath.tipY + 8})`}>
+                <rect
+                  x="0"
+                  y="0"
+                  width="142"
+                  height="22"
+                  rx="4"
+                  fill="#ffffff"
+                  fillOpacity="0.95"
+                  stroke="#e2e8f0"
+                  strokeWidth="1"
+                />
+                <text
+                  x="71"
+                  y="15"
+                  textAnchor="middle"
+                  fontSize="10"
+                  fontWeight="bold"
+                  fontFamily="sans-serif"
+                  fill="#ea580c"
+                >
+                  OD Depth: {odCrackPath.depthMm.toFixed(1)} mm ({((odCrackPath.depthMm / nominalWallThickness) * 100).toFixed(0)}%)
+                </text>
+              </g>
+            </g>
+          )}
 
           {/* Horizontal Thickness Dimension Ruler at bottom */}
           <g transform={`translate(0, ${plateBottom + 26})`}>
@@ -552,23 +687,23 @@ export function WeldBevelSScanProfile({
               hoverCursor.xPx > width / 2 ? "left-3 top-3" : "right-3 top-3"
             }`}
             style={{
-              minWidth: "230px",
+              minWidth: "240px",
             }}
           >
             <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200">
               <span className="font-bold text-slate-900">Through-Wall Slice</span>
               <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-sky-100 text-sky-800">
-                {hoverCursor.percentOfWallThickness}% Depth
+                {hoverCursor.percentOfWallThickness}% Wall Depth
               </span>
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between">
-                <span className="text-slate-500">Depth from ID:</span>
+                <span className="text-slate-500">Cursor Depth from ID:</span>
                 <span className="font-mono font-bold text-sky-800">{hoverCursor.depthFromIdMm} mm</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Distance from OD:</span>
+                <span className="text-slate-500">Cursor Dist from OD:</span>
                 <span className="font-mono font-bold text-slate-900">{hoverCursor.distanceFromOdMm} mm</span>
               </div>
               <div className="flex justify-between">
@@ -581,10 +716,22 @@ export function WeldBevelSScanProfile({
                 <span className="text-slate-500">Material Zone:</span>
                 <span className="font-semibold text-slate-700">{hoverCursor.zone}</span>
               </div>
+              {hasIdCrack && (
+                <div className="flex justify-between text-red-700 font-semibold pt-1 border-t border-slate-100">
+                  <span>ID Flaw Depth:</span>
+                  <span className="font-mono">{depthIdMm?.toFixed(1)} mm</span>
+                </div>
+              )}
+              {hasOdCrack && (
+                <div className="flex justify-between text-amber-700 font-semibold">
+                  <span>OD Flaw Depth:</span>
+                  <span className="font-mono">{depthOdMm?.toFixed(1)} mm</span>
+                </div>
+              )}
               <div className="pt-1.5 border-t border-slate-100 flex justify-between">
-                <span className="text-slate-500">Remaining Sound Wall:</span>
+                <span className="text-slate-500">Sound Ligament:</span>
                 <span className="font-bold text-emerald-700 font-mono">
-                  {(nominalWallThickness - crackDepthMm).toFixed(1)} mm
+                  {soundWallRemainingMm} mm
                 </span>
               </div>
             </div>
@@ -593,11 +740,16 @@ export function WeldBevelSScanProfile({
       </div>
 
       {/* Cross-Section Engineering Metadata */}
-      <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-slate-100">
-        <div className="flex items-center gap-4">
-          <span>Crack Origin: <strong className="text-red-700">{crackCurvePath.originLabel}</strong></span>
-          <span>Measured Depth: <strong className="text-red-700">{crackDepthMm.toFixed(1)} mm</strong> ({((crackDepthMm / nominalWallThickness) * 100).toFixed(1)}% of wall)</span>
-          <span>Sound Ligament: <strong className="text-emerald-700 font-mono">{(nominalWallThickness - crackDepthMm).toFixed(1)} mm</strong></span>
+      <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-slate-100 gap-2">
+        <div className="flex flex-wrap items-center gap-4">
+          <span>Position: <strong className="text-slate-800">{indication.weldPosition || "Weld Toe"}</strong></span>
+          {hasIdCrack && (
+            <span>ID Depth: <strong className="text-red-700">{depthIdMm?.toFixed(1)} mm</strong> ({((depthIdMm! / nominalWallThickness) * 100).toFixed(0)}%)</span>
+          )}
+          {hasOdCrack && (
+            <span>OD Depth: <strong className="text-amber-700">{depthOdMm?.toFixed(1)} mm</strong> ({((depthOdMm! / nominalWallThickness) * 100).toFixed(0)}%)</span>
+          )}
+          <span>Sound Ligament: <strong className="text-emerald-700 font-mono">{soundWallRemainingMm} mm</strong></span>
         </div>
         <span className="text-slate-400 italic">Asymmetric Double-V (X-Groove) • Weld Center 0 mm</span>
       </div>

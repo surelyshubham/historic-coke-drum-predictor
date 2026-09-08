@@ -40,6 +40,10 @@ export default function ReportsPage() {
   const [searchFilter, setSearchFilter] = useState<string>("");
   const [exportingDocx, setExportingDocx] = useState<boolean>(false);
 
+  // User Configurable Job Parameters (Nominal Wall Thickness & Vessel Outer Diameter)
+  const [customThicknessInput, setCustomThicknessInput] = useState<string>("");
+  const [customDiameterInput, setCustomDiameterInput] = useState<string>("");
+
   // Uploaded Excel State
   const [uploadedExcelName, setUploadedExcelName] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -60,10 +64,10 @@ export default function ReportsPage() {
     loadReport();
   }, []);
 
-  const loadReport = async (drumId?: number, weldId?: number) => {
+  const loadReport = async (drumId?: number, weldId?: number, userThickness?: number, userDia?: number) => {
     setLoading(true);
     try {
-      const data = await getReportData(drumId, weldId);
+      const data = await getReportData(drumId, weldId, userThickness, userDia);
       setPayload(data);
       setSelectedDrumId(data.vesselInfo.id);
       setSelectedWeldId(data.selectedWeldId);
@@ -86,7 +90,13 @@ export default function ReportsPage() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const parsedPayload = await parseUploadedExcelReportData(formData);
+      const parsedPayload = await parseUploadedExcelReportData(
+        formData,
+        undefined,
+        undefined,
+        customThicknessInput ? Number(customThicknessInput) : undefined,
+        customDiameterInput ? Number(customDiameterInput) : undefined
+      );
       setPayload(parsedPayload);
       setUploadedExcelName(file.name);
       setUploadedFile(file);
@@ -107,7 +117,12 @@ export default function ReportsPage() {
     setUploadedExcelName(null);
     setUploadedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    loadReport();
+    loadReport(
+      undefined,
+      undefined,
+      customThicknessInput ? Number(customThicknessInput) : undefined,
+      customDiameterInput ? Number(customDiameterInput) : undefined
+    );
   };
 
   const handleDrumChange = async (id: number) => {
@@ -121,7 +136,13 @@ export default function ReportsPage() {
         try {
           const formData = new FormData();
           formData.append("file", uploadedFile);
-          const newPayload = await parseUploadedExcelReportData(formData, drumObj.name, undefined);
+          const newPayload = await parseUploadedExcelReportData(
+            formData, 
+            drumObj.name, 
+            undefined,
+            customThicknessInput ? Number(customThicknessInput) : undefined,
+            customDiameterInput ? Number(customDiameterInput) : undefined
+          );
           setPayload(newPayload);
           setSelectedIndicationId(newPayload.indications[0]?.id ?? null);
         } catch (err) {
@@ -131,7 +152,12 @@ export default function ReportsPage() {
         }
       }
     } else {
-      loadReport(id, undefined);
+      loadReport(
+        id, 
+        undefined,
+        customThicknessInput ? Number(customThicknessInput) : undefined,
+        customDiameterInput ? Number(customDiameterInput) : undefined
+      );
     }
   };
 
@@ -147,7 +173,13 @@ export default function ReportsPage() {
       try {
         const formData = new FormData();
         formData.append("file", uploadedFile);
-        const newPayload = await parseUploadedExcelReportData(formData, activeDrum?.name, targetWeldName);
+        const newPayload = await parseUploadedExcelReportData(
+          formData, 
+          activeDrum?.name, 
+          targetWeldName,
+          customThicknessInput ? Number(customThicknessInput) : undefined,
+          customDiameterInput ? Number(customDiameterInput) : undefined
+        );
         setPayload(newPayload);
         setSelectedIndicationId(newPayload.indications[0]?.id ?? null);
       } catch (err) {
@@ -156,7 +188,12 @@ export default function ReportsPage() {
         setLoading(false);
       }
     } else {
-      loadReport(selectedDrumId || undefined, wId || undefined);
+      loadReport(
+        selectedDrumId || undefined, 
+        wId || undefined,
+        customThicknessInput ? Number(customThicknessInput) : undefined,
+        customDiameterInput ? Number(customDiameterInput) : undefined
+      );
     }
   };
 
@@ -227,13 +264,24 @@ export default function ReportsPage() {
         forecastCurveImage: forecastCurveImg || undefined,
       };
 
+      const activePayloadForDocx: ReportPayload = {
+        ...payload,
+        vesselInfo: {
+          ...payload.vesselInfo,
+          nominalThickness: effectiveNominalThickness,
+          diameter: effectiveDiameter,
+        },
+        executiveSummary: effectiveExecutiveSummary || payload.executiveSummary,
+        indications: displayIndications,
+      };
+
       const res = await fetch("/api/reports/docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           drumId: selectedDrumId,
           weldId: selectedWeldId,
-          customPayload: payload,
+          customPayload: activePayloadForDocx,
           images,
         }),
       });
@@ -261,13 +309,67 @@ export default function ReportsPage() {
     window.print();
   };
 
+  const effectiveNominalThickness = customThicknessInput !== "" && !isNaN(Number(customThicknessInput)) && Number(customThicknessInput) > 0
+    ? Number(customThicknessInput)
+    : (payload?.vesselInfo.nominalThickness ?? 32.0);
+
+  const effectiveDiameter = customDiameterInput !== "" && !isNaN(Number(customDiameterInput)) && Number(customDiameterInput) > 0
+    ? Number(customDiameterInput)
+    : (payload?.vesselInfo.diameter ?? 8.97);
+
+  // Derived Vessel Dimensions
+  const innerDiameterM = Number((effectiveDiameter - (2 * effectiveNominalThickness) / 1000).toFixed(3));
+  const innerDiameterMm = Number((innerDiameterM * 1000).toFixed(0));
+  const outerDiameterMm = Number((effectiveDiameter * 1000).toFixed(0));
+  const circumferenceM = Number((effectiveDiameter * Math.PI).toFixed(2));
+  const circumferenceMm = Math.round(circumferenceM * 1000);
+
+  // Dynamic Indications reflecting live user-defined nominal wall thickness
+  const displayIndications = useMemo<ReportIndicationItem[]>(() => {
+    if (!payload) return [];
+    return payload.indications.map((item) => {
+      const depthPercentOfWall = Number(((item.currentDepth / effectiveNominalThickness) * 100).toFixed(1));
+      let riskTier: "CRITICAL" | "HIGH" | "MODERATE" | "LOW" = "LOW";
+      if (depthPercentOfWall >= 90) riskTier = "CRITICAL";
+      else if (depthPercentOfWall >= 80) riskTier = "HIGH";
+      else if (depthPercentOfWall >= 50) riskTier = "MODERATE";
+
+      return {
+        ...item,
+        depthPercentOfWall,
+        riskTier,
+      };
+    });
+  }, [payload, effectiveNominalThickness]);
+
+  const effectiveExecutiveSummary = useMemo(() => {
+    if (!payload) return null;
+    const criticalCount = displayIndications.filter((i) => i.riskTier === "CRITICAL").length;
+    const highRiskCount = displayIndications.filter((i) => i.riskTier === "HIGH").length;
+    return {
+      ...payload.executiveSummary,
+      criticalCount,
+      highRiskCount,
+    };
+  }, [payload, displayIndications]);
+
   // Convert report items to TrackedPhysicalIndication for visualization components
   const trackedIndications = useMemo<TrackedPhysicalIndication[]>(() => {
     if (!payload) return [];
-    return payload.indications.map((item) => {
-      const campaignValues: Record<string, { length: number | null; depth: number | null }> = {};
+    return displayIndications.map((item) => {
+      const campaignValues: Record<string, { 
+        length: number | null; 
+        depth: number | null;
+        depthOd?: number | null;
+        depthId?: number | null;
+      }> = {};
       for (const h of item.campaignHistory) {
-        campaignValues[h.campaignName] = { length: h.length, depth: h.depth };
+        campaignValues[h.campaignName] = { 
+          length: h.length, 
+          depth: h.depth,
+          depthOd: h.depthOd ?? null,
+          depthId: h.depthId ?? null,
+        };
       }
       return {
         code: item.code,
@@ -281,6 +383,12 @@ export default function ReportsPage() {
         hasRepairs: false,
         latestLength: item.currentLength,
         latestDepth: item.currentDepth,
+        latestDepthOd: item.currentDepthOd ?? null,
+        latestDepthId: item.currentDepthId ?? null,
+        cladStatus: item.cladStatus ?? 'INCLUDING',
+        accumulatedHeight: item.accumulatedHeight ?? null,
+        offsetMm: item.offsetMm ?? 0,
+        toeType: item.toeType ?? 'CENTER',
         earliestLength: item.campaignHistory[0]?.length ?? item.currentLength,
         growthDelta: Number((item.currentLength - (item.campaignHistory[0]?.length ?? item.currentLength)).toFixed(1)),
         growthRateYear: item.growthRateYear,
@@ -288,12 +396,12 @@ export default function ReportsPage() {
         campaignValues,
       };
     });
-  }, [payload]);
+  }, [payload, displayIndications]);
 
   const selectedIndication = useMemo(() => {
     if (!payload) return null;
-    return payload.indications.find((i) => i.id === selectedIndicationId) || payload.indications[0] || null;
-  }, [payload, selectedIndicationId]);
+    return displayIndications.find((i) => i.id === selectedIndicationId) || displayIndications[0] || null;
+  }, [payload, selectedIndicationId, displayIndications]);
 
   const selectedTrackedIndication = useMemo<TrackedPhysicalIndication | null>(() => {
     if (!selectedIndication || !payload) return null;
@@ -324,16 +432,16 @@ export default function ReportsPage() {
 
   const filteredTableIndications = useMemo(() => {
     if (!payload) return [];
-    if (!searchFilter.trim()) return payload.indications;
+    if (!searchFilter.trim()) return displayIndications;
     const q = searchFilter.toLowerCase();
-    return payload.indications.filter(
+    return displayIndications.filter(
       (i) =>
         i.code.toLowerCase().includes(q) ||
         i.weldName.toLowerCase().includes(q) ||
         i.riskTier.toLowerCase().includes(q) ||
         i.circumferentialPosition.toString().includes(q)
     );
-  }, [payload, searchFilter]);
+  }, [payload, displayIndications, searchFilter]);
 
   if (loading) {
     return (
@@ -352,8 +460,7 @@ export default function ReportsPage() {
     );
   }
 
-  const { vesselInfo, executiveSummary, availableDrums, availableWelds } = payload;
-  const circumferenceM = Number((vesselInfo.diameter * Math.PI).toFixed(2));
+  const { vesselInfo, availableDrums, availableWelds } = payload;
   const activeWeldName = selectedWeldId 
     ? availableWelds.find(w => w.id === selectedWeldId)?.name || "Weld Seam" 
     : "All Weld Seams";
@@ -446,6 +553,73 @@ export default function ReportsPage() {
             >
               <Printer size={14} /> Print / Save PDF
             </button>
+          </div>
+        </div>
+
+        {/* Interactive Job Vessel Parameters (User Spec Entry) */}
+        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-sky-50/70 p-3 rounded-xl border border-sky-200">
+          <div className="flex items-center gap-2">
+            <Sliders size={15} className="text-sky-700" />
+            <span className="font-bold text-slate-800 text-xs">Job Vessel Specifications (Editable):</span>
+            <span className="text-[11px] text-slate-500 hidden sm:inline">Live recalculation of wall penetration &amp; S-Scan geometry</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className="flex items-center gap-1.5">
+              <label className="font-semibold text-slate-700">Nominal Wall (t):</label>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  step="0.5"
+                  min="1"
+                  max="200"
+                  value={customThicknessInput !== "" ? customThicknessInput : effectiveNominalThickness}
+                  onChange={(e) => setCustomThicknessInput(e.target.value)}
+                  className="w-20 px-2 py-1 border border-slate-300 rounded font-mono font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 text-xs text-right pr-6"
+                />
+                <span className="absolute right-1.5 text-[11px] text-slate-400 font-semibold pointer-events-none">mm</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <label className="font-semibold text-slate-700">Outer Dia (OD):</label>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.5"
+                  max="50"
+                  value={customDiameterInput !== "" ? customDiameterInput : effectiveDiameter}
+                  onChange={(e) => setCustomDiameterInput(e.target.value)}
+                  className="w-20 px-2 py-1 border border-slate-300 rounded font-mono font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 text-xs text-right pr-5"
+                />
+                <span className="absolute right-1.5 text-[11px] text-slate-400 font-semibold pointer-events-none">m</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded px-2.5 py-1 text-slate-700 shadow-2xs">
+              <span className="text-slate-500 font-medium">Inner Dia (ID):</span>
+              <span className="font-mono font-bold text-emerald-800">{innerDiameterM.toFixed(3)} m</span>
+              <span className="text-[10px] text-slate-400 font-mono">({innerDiameterMm} mm)</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded px-2.5 py-1 text-slate-700 shadow-2xs">
+              <span className="text-slate-500 font-medium">Circumference:</span>
+              <span className="font-mono font-bold text-sky-800">~{circumferenceM} m</span>
+            </div>
+
+            {(customThicknessInput !== "" || customDiameterInput !== "") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomThicknessInput("");
+                  setCustomDiameterInput("");
+                }}
+                className="text-[11px] font-semibold text-sky-700 hover:text-sky-900 underline ml-1 cursor-pointer"
+              >
+                Reset Defaults
+              </button>
+            )}
           </div>
         </div>
 
@@ -578,7 +752,7 @@ export default function ReportsPage() {
             <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
               <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-sky-600"></span>
-                1. Executive Summary & Vessel Specifications
+                1. Executive Summary &amp; Vessel Specifications
               </h3>
               <span className="text-[11px] text-slate-500">Equipment: <strong>{vesselInfo.name}</strong> ({vesselInfo.clientName})</span>
             </div>
@@ -591,7 +765,7 @@ export default function ReportsPage() {
                   <Layers size={15} className="text-sky-600" />
                 </div>
                 <div className="text-2xl font-black text-slate-900 mt-1">
-                  {executiveSummary.monitoredFlawsCount}
+                  {(effectiveExecutiveSummary || payload.executiveSummary).monitoredFlawsCount}
                 </div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   Tracked across all seams
@@ -603,8 +777,8 @@ export default function ReportsPage() {
                   <span>Critical Risk (&gt;90%)</span>
                   <AlertTriangle size={15} className="text-red-600" />
                 </div>
-                <div className={`text-2xl font-black mt-1 ${executiveSummary.criticalCount > 0 ? "text-red-600" : "text-emerald-700"}`}>
-                  {executiveSummary.criticalCount}
+                <div className={`text-2xl font-black mt-1 ${(effectiveExecutiveSummary || payload.executiveSummary).criticalCount > 0 ? "text-red-600" : "text-emerald-700"}`}>
+                  {(effectiveExecutiveSummary || payload.executiveSummary).criticalCount}
                 </div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   Immediate outage attention
@@ -617,10 +791,10 @@ export default function ReportsPage() {
                   <Clock size={15} className="text-amber-600" />
                 </div>
                 <div className="text-sm font-bold text-slate-900 mt-1 truncate">
-                  {executiveSummary.earliestWarningDate || "None"}
+                  {(effectiveExecutiveSummary || payload.executiveSummary).earliestWarningDate || "None"}
                 </div>
                 <div className="text-[11px] text-amber-700 font-semibold mt-0.5">
-                  {executiveSummary.earliestWarningDays !== null ? `${executiveSummary.earliestWarningDays} days remaining` : "Safe margin"}
+                  {(effectiveExecutiveSummary || payload.executiveSummary).earliestWarningDays !== null ? `${(effectiveExecutiveSummary || payload.executiveSummary).earliestWarningDays} days remaining` : "Safe margin"}
                 </div>
               </div>
 
@@ -630,7 +804,7 @@ export default function ReportsPage() {
                   <Calendar size={15} className="text-sky-600" />
                 </div>
                 <div className="text-sm font-bold text-sky-800 mt-1 truncate">
-                  {executiveSummary.recommendedTurnaroundDate || "Routine"}
+                  {(effectiveExecutiveSummary || payload.executiveSummary).recommendedTurnaroundDate || "Routine"}
                 </div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   Turnaround Action Window
@@ -649,11 +823,27 @@ export default function ReportsPage() {
                     </tr>
                     <tr className="border-b border-slate-100">
                       <td className="p-2 font-semibold text-slate-500">Nominal Wall:</td>
-                      <td className="p-2 font-bold text-slate-900">{vesselInfo.nominalThickness.toFixed(1)} mm</td>
+                      <td className="p-2 font-bold text-slate-900">
+                        {effectiveNominalThickness.toFixed(1)} mm
+                        {customThicknessInput !== "" && (
+                          <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
+                            Custom Spec
+                          </span>
+                        )}
+                      </td>
                     </tr>
                     <tr className="border-b border-slate-100 bg-slate-50/70">
-                      <td className="p-2 font-semibold text-slate-500">Outer Diameter:</td>
-                      <td className="p-2 font-bold text-slate-900">{vesselInfo.diameter.toFixed(2)} m (~{circumferenceM} m circumference)</td>
+                      <td className="p-2 font-semibold text-slate-500">Outer Diameter (OD):</td>
+                      <td className="p-2 font-bold text-slate-900">
+                        {effectiveDiameter.toFixed(2)} m ({outerDiameterMm} mm)
+                      </td>
+                    </tr>
+                    <tr className="border-b border-slate-100">
+                      <td className="p-2 font-semibold text-slate-500">Inner Diameter (ID):</td>
+                      <td className="p-2 font-bold text-emerald-800">
+                        {innerDiameterM.toFixed(3)} m ({innerDiameterMm} mm)
+                        <span className="text-[10px] text-slate-400 font-normal ml-1">(ID = OD - 2t)</span>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -673,6 +863,10 @@ export default function ReportsPage() {
                       <td className="p-2 font-semibold text-slate-500">Assessment Scope:</td>
                       <td className="p-2 font-bold text-slate-900">{activeWeldName}</td>
                     </tr>
+                    <tr className="border-b border-slate-100">
+                      <td className="p-2 font-semibold text-slate-500">Circumference:</td>
+                      <td className="p-2 font-bold text-slate-900">~{circumferenceM} m ({circumferenceMm} mm)</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -688,7 +882,7 @@ export default function ReportsPage() {
                 <span className="w-2 h-2 rounded-full bg-sky-600"></span>
                 2. 360° Circumferential Polar Ring Map (Shell Cross-Section)
               </h3>
-              <span className="text-[11px] text-slate-500">North 0° • Anticlockwise Scan • Slots L1–L28 ({circumferenceM} m Perimeter)</span>
+              <span className="text-[11px] text-slate-500">North 0° • Anticlockwise Scan • Slots L1–L28 (~{circumferenceM} m Perimeter)</span>
             </div>
 
             <div id="report-polar-ring-container">
@@ -696,13 +890,13 @@ export default function ReportsPage() {
                 indications={trackedIndications}
                 selectedFlawCode={selectedIndication?.code}
                 onSelectFlaw={(pi) => {
-                  const found = payload.indications.find((i) => i.code === pi.code);
+                  const found = displayIndications.find((i) => i.code === pi.code);
                   if (found) setSelectedIndicationId(found.id);
                 }}
                 drumName={vesselInfo.name}
                 weldName={activeWeldName}
-                totalCircumferenceMm={Math.round(circumferenceM * 1000)}
-                nominalWallThickness={vesselInfo.nominalThickness}
+                totalCircumferenceMm={circumferenceMm}
+                nominalWallThickness={effectiveNominalThickness}
               />
             </div>
           </div>
@@ -724,7 +918,7 @@ export default function ReportsPage() {
                 indications={trackedIndications}
                 selectedFlawCode={selectedIndication?.code}
                 onSelectFlaw={(pi) => {
-                  const found = payload.indications.find((i) => i.code === pi.code);
+                  const found = displayIndications.find((i) => i.code === pi.code);
                   if (found) setSelectedIndicationId(found.id);
                 }}
               />
@@ -747,7 +941,7 @@ export default function ReportsPage() {
                   onChange={(e) => setSelectedIndicationId(Number(e.target.value))}
                   className="font-bold text-sky-800 bg-slate-50 border border-slate-300 rounded px-2 py-0.5"
                 >
-                  {payload.indications.map((i) => (
+                  {displayIndications.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.code} ({i.currentLength} mm × {i.currentDepth} mm)
                     </option>
@@ -759,7 +953,7 @@ export default function ReportsPage() {
             <div id="report-bevel-sscan-container">
               <WeldBevelSScanProfile
                 indication={selectedTrackedIndication}
-                nominalWallThickness={vesselInfo.nominalThickness}
+                nominalWallThickness={effectiveNominalThickness}
               />
             </div>
           </div>
@@ -783,7 +977,7 @@ export default function ReportsPage() {
                 measurements={forecastMeasurements}
                 flawCode={selectedIndication.code}
                 locationInfo={`Weld Seam ${selectedIndication.weldName} (${selectedIndication.circumferentialPosition} mm)`}
-                nominalThickness={vesselInfo.nominalThickness}
+                nominalThickness={effectiveNominalThickness}
               />
             </div>
           </div>
@@ -818,9 +1012,11 @@ export default function ReportsPage() {
                     <th className="p-2.5">Flaw ID</th>
                     <th className="p-2.5">Weld</th>
                     <th className="p-2.5">Circ. Pos</th>
-                    <th className="p-2.5">Current Length</th>
-                    <th className="p-2.5">Current Depth</th>
+                    <th className="p-2.5">Length</th>
+                    <th className="p-2.5">Depth</th>
+                    <th className="p-2.5">Depth (ID / OD)</th>
                     <th className="p-2.5">% Wall</th>
+                    <th className="p-2.5">Sound Wall</th>
                     <th className="p-2.5">Growth Rate</th>
                     <th className="p-2.5">80% Warning</th>
                     <th className="p-2.5">Days Rem.</th>
@@ -839,6 +1035,14 @@ export default function ReportsPage() {
                         ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                         : "bg-emerald-100 text-emerald-800 border-emerald-200";
 
+                    const soundLigament = Math.max(
+                      0,
+                      effectiveNominalThickness -
+                        ((ind.currentDepthId || 0) + (ind.currentDepthOd || 0) > 0
+                          ? (ind.currentDepthId || 0) + (ind.currentDepthOd || 0)
+                          : ind.currentDepth)
+                    ).toFixed(1);
+
                     return (
                       <tr
                         key={ind.id}
@@ -852,7 +1056,14 @@ export default function ReportsPage() {
                         <td className="p-2.5 font-mono text-slate-700">{ind.circumferentialPosition} mm</td>
                         <td className="p-2.5 font-mono text-slate-800">{ind.currentLength} mm</td>
                         <td className="p-2.5 font-mono font-bold text-sky-800">{ind.currentDepth} mm</td>
+                        <td className="p-2.5 font-mono text-[11px] text-slate-600">
+                          {ind.currentDepthId !== null && ind.currentDepthId !== undefined ? `ID: ${ind.currentDepthId}mm` : ""}
+                          {ind.currentDepthId && ind.currentDepthOd ? " • " : ""}
+                          {ind.currentDepthOd !== null && ind.currentDepthOd !== undefined ? `OD: ${ind.currentDepthOd}mm` : ""}
+                          {!ind.currentDepthId && !ind.currentDepthOd ? "—" : ""}
+                        </td>
                         <td className="p-2.5 font-mono text-slate-700">{ind.depthPercentOfWall}%</td>
+                        <td className="p-2.5 font-mono font-bold text-emerald-700">{soundLigament} mm</td>
                         <td className="p-2.5 font-mono font-bold text-amber-700">+{ind.growthRateYear} mm/yr</td>
                         <td className="p-2.5 text-slate-700">{ind.warningDate || "Safe"}</td>
                         <td className="p-2.5 font-mono">
@@ -874,7 +1085,7 @@ export default function ReportsPage() {
                   })}
                   {filteredTableIndications.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="p-4 text-center text-slate-400 italic">
+                      <td colSpan={12} className="p-4 text-center text-slate-400 italic">
                         No indications matching filter criteria.
                       </td>
                     </tr>
@@ -896,7 +1107,7 @@ export default function ReportsPage() {
           <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed">
             <li>
               <strong>Targeted Weld Seam Repairs:</strong> Prioritize remedial weld gouging and weld overlay on seams exhibiting accelerated growth prior to{" "}
-              <strong>{executiveSummary.recommendedTurnaroundDate || "the next planned outage"}</strong>.
+              <strong>{(effectiveExecutiveSummary || payload.executiveSummary).recommendedTurnaroundDate || "the next planned outage"}</strong>.
             </li>
             <li>
               <strong>API 579 FFS Monitoring:</strong> Maintain rigorous annual ultrasonic phased array surveillance on all indications within the High and Critical risk tiers.

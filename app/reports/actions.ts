@@ -30,7 +30,13 @@ import {
   MatrixParseResult 
 } from "@/lib/import/matrixParser";
 
-export async function parseUploadedExcelReportData(formData: FormData, selectedDrumName?: string, selectedWeldName?: string): Promise<ReportPayload> {
+export async function parseUploadedExcelReportData(
+  formData: FormData, 
+  selectedDrumName?: string, 
+  selectedWeldName?: string,
+  userNominalThickness?: number,
+  userDiameter?: number
+): Promise<ReportPayload> {
   const file = formData.get("file") as File;
   if (!file) {
     throw new Error("No file uploaded");
@@ -70,21 +76,41 @@ export async function parseUploadedExcelReportData(formData: FormData, selectedD
     throw new Error("Could not parse PAUT inspection matrix from the uploaded Excel file. Please ensure multi-campaign columns (e.g. OCT-23, APR-24, etc.) are present.");
   }
 
-  return buildReportPayloadFromMatrix(parsedMatrix, selectedDrumName, selectedWeldName);
+  return buildReportPayloadFromMatrix(parsedMatrix, selectedDrumName, selectedWeldName, userNominalThickness, userDiameter);
 }
 
 export async function buildReportPayloadFromMatrix(
   matrix: MatrixParseResult,
   targetDrumName?: string,
-  targetWeldName?: string
+  targetWeldName?: string,
+  customNominalThickness?: number,
+  customDiameter?: number
 ): Promise<ReportPayload> {
-  const nominalThickness = 32.0;
-  const diameter = 8.97;
-
   const availableDrumNames = matrix.availableDrums.length > 0 ? matrix.availableDrums : ["R01"];
   const activeDrumName = targetDrumName && availableDrumNames.includes(targetDrumName)
     ? targetDrumName
     : availableDrumNames[0];
+
+  // Dynamically look up drum specs in the database if available
+  let dbNominalThickness = 32.0;
+  let dbDiameter = 8.97;
+  let dbMaterial = "SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)";
+
+  try {
+    const foundDrums = await db.select().from(cokeDrums).where(eq(cokeDrums.name, activeDrumName));
+    const foundDrum = foundDrums[0];
+    if (foundDrum) {
+      if (foundDrum.nominalThickness) dbNominalThickness = foundDrum.nominalThickness;
+      if (foundDrum.diameter) dbDiameter = foundDrum.diameter;
+      if (foundDrum.material) dbMaterial = foundDrum.material;
+    }
+  } catch (e) {
+    // Non-blocking database check
+  }
+
+  // User entry takes highest priority, then database, then default standard
+  const nominalThickness = customNominalThickness && customNominalThickness > 0 ? customNominalThickness : dbNominalThickness;
+  const diameter = customDiameter && customDiameter > 0 ? customDiameter : dbDiameter;
 
   const availableWeldsForDrum = matrix.weldsByDrum[activeDrumName] || matrix.availableWelds;
   const activeWeldName = targetWeldName && availableWeldsForDrum.includes(targetWeldName)
@@ -119,6 +145,8 @@ export async function buildReportPayloadFromMatrix(
           inspectionDate: c.date,
           length: val.length,
           depth: val.depth,
+          depthOd: val.depthOd ?? null,
+          depthId: val.depthId ?? null,
         });
       }
     });
@@ -155,6 +183,12 @@ export async function buildReportPayloadFromMatrix(
       weldPosition: pi.weldPosition,
       currentLength: Number(pred.currentLength.toFixed(1)),
       currentDepth: Number(currentDepth.toFixed(2)),
+      currentDepthOd: pi.latestDepthOd ?? null,
+      currentDepthId: pi.latestDepthId ?? null,
+      cladStatus: pi.cladStatus ?? 'INCLUDING',
+      offsetMm: pi.offsetMm ?? 0,
+      toeType: pi.toeType ?? 'CENTER',
+      accumulatedHeight: pi.accumulatedHeight ?? null,
       depthPercentOfWall,
       growthRateYear: pred.annualDepthRateMmYear,
       warningDate: pred.exceedance.warningDate ? pred.exceedance.warningDate.toISOString().split("T")[0] : null,
@@ -247,7 +281,12 @@ export async function buildReportPayloadFromMatrix(
   };
 }
 
-export async function getReportData(drumId?: number, weldId?: number): Promise<ReportPayload> {
+export async function getReportData(
+  drumId?: number, 
+  weldId?: number, 
+  userNominalThickness?: number, 
+  userDiameter?: number
+): Promise<ReportPayload> {
   const session = await auth();
   if (!session?.user) {
     throw new Error("Unauthorized: Please sign in.");
@@ -263,8 +302,12 @@ export async function getReportData(drumId?: number, weldId?: number): Promise<R
     ? drumsList.find(d => d.id === drumId) || drumsList[0] 
     : drumsList[0];
 
-  const nominalThickness = activeDrum.nominalThickness ?? 32.0;
-  const diameter = activeDrum.diameter ?? 8.97;
+  const nominalThickness = userNominalThickness && userNominalThickness > 0 
+    ? userNominalThickness 
+    : (activeDrum.nominalThickness ?? 32.0);
+  const diameter = userDiameter && userDiameter > 0 
+    ? userDiameter 
+    : (activeDrum.diameter ?? 8.97);
 
   // Fetch client details
   let clientName = "Refinery Operations";

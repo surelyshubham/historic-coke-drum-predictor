@@ -21,6 +21,10 @@ export interface UnpivotedObservation {
   circumferentialPosition: number;
   length: number;
   depth: number;
+  depthOd?: number | null;
+  depthId?: number | null;
+  cladStatus?: string;
+  accumulatedHeight?: number | null;
   weldPosition: string;
   indicationType: string;
   isAfterRepair?: boolean;
@@ -38,11 +42,45 @@ export interface TrackedPhysicalIndication {
   hasRepairs: boolean;
   latestLength: number;
   latestDepth: number;
+  latestDepthOd?: number | null;
+  latestDepthId?: number | null;
+  cladStatus?: string;
+  accumulatedHeight?: number | null;
+  offsetMm?: number;
+  toeType?: 'TT' | 'BT' | 'BOTH' | 'CENTER';
   earliestLength: number;
   growthDelta: number;
   growthRateYear: number;
   observationsCount: number;
-  campaignValues: Record<string, { length: number | null; depth: number | null }>;
+  campaignValues: Record<string, { 
+    length: number | null; 
+    depth: number | null;
+    depthOd?: number | null;
+    depthId?: number | null;
+  }>;
+}
+
+// Parse numeric offset and toe landmark from strings like "30MM TT", "50MM BT", "TT & BT"
+export function parseWeldPositionDetails(posStr: string): { 
+  offsetMm: number; 
+  toeType: 'TT' | 'BT' | 'BOTH' | 'CENTER'; 
+  isOd: boolean;
+} {
+  const up = (posStr || '').toUpperCase().trim();
+  const numMatch = up.match(/(\d+)\s*MM/);
+  const offsetMm = numMatch ? parseFloat(numMatch[1]) : 0;
+  
+  let toeType: 'TT' | 'BT' | 'BOTH' | 'CENTER' = 'CENTER';
+  if (up.includes('TT') && up.includes('BT')) {
+    toeType = 'BOTH';
+  } else if (up.includes('TT')) {
+    toeType = 'TT';
+  } else if (up.includes('BT')) {
+    toeType = 'BT';
+  }
+  
+  const isOd = up.includes('OD');
+  return { offsetMm, toeType, isOd };
 }
 
 export interface MatrixParseResult {
@@ -235,6 +273,8 @@ export function parseMatrixRows(
   const segmentCol = headers.find(h => h.toUpperCase().includes('SEGMENT')) || headers[2];
   const typeCol = headers.find(h => h.toUpperCase().includes('INDICATION TYPE') || h.toUpperCase() === 'TYPE');
   const weldPosCol = headers.find(h => h.toUpperCase().includes('DEFECT POSITION') || h.toUpperCase().includes('BOTTOM TOE'));
+  const cladCol = headers.find(h => h.toUpperCase().includes('CLAD'));
+  const heightCol = headers.find(h => h.toUpperCase().includes('ACCUMULATED') || (h.toUpperCase().includes('HEIGHT') && !h.toUpperCase().includes('WEIGHT')));
 
   rows.forEach((row, rowIdx) => {
     let drumName = String(row[drumCol] ?? 'C04').trim().toUpperCase();
@@ -246,6 +286,9 @@ export function parseMatrixRows(
     const segment = String(row[segmentCol] ?? '').trim();
     const indicationType = typeCol && row[typeCol] ? String(row[typeCol]).trim() : 'Crack-like';
     const weldPosition = weldPosCol && row[weldPosCol] ? String(row[weldPosCol]).trim() : 'Weld';
+    const cladStatus = cladCol && row[cladCol] ? String(row[cladCol]).trim().toUpperCase() : 'INCLUDING';
+    const accumulatedHeight = heightCol ? parseMeasurement(row[heightCol]) : null;
+    const { offsetMm, toeType } = parseWeldPositionDetails(weldPosition);
 
     allDrumsSet.add(drumName);
     allWeldsSet.add(weldName);
@@ -278,9 +321,11 @@ export function parseMatrixRows(
 
     let rowObsCount = 0;
     let hasRepairs = false;
-    const campaignValues: Record<string, { length: number | null; depth: number | null }> = {};
+    const campaignValues: Record<string, { length: number | null; depth: number | null; depthOd?: number | null; depthId?: number | null }> = {};
     const recordedLengths: Array<{ date: string; len: number }> = [];
     let latestDepth = 3.0;
+    let latestDepthOd: number | null = null;
+    let latestDepthId: number | null = null;
 
     // Unpivot observations across campaigns
     campaigns.forEach(camp => {
@@ -299,15 +344,17 @@ export function parseMatrixRows(
         }
       }
 
-      let depth: number | null = null;
-      if (camp.depthOdCol && row[camp.depthOdCol]) {
-        depth = parseMeasurement(row[camp.depthOdCol]);
-      } else if (camp.depthIdCol && row[camp.depthIdCol]) {
-        depth = parseMeasurement(row[camp.depthIdCol]);
-      }
+      const depthOd = camp.depthOdCol && row[camp.depthOdCol] ? parseMeasurement(row[camp.depthOdCol]) : null;
+      const depthId = camp.depthIdCol && row[camp.depthIdCol] ? parseMeasurement(row[camp.depthIdCol]) : null;
+
+      if (depthOd !== null) latestDepthOd = depthOd;
+      if (depthId !== null) latestDepthId = depthId;
+
+      const effectiveDepth = depthId !== null && depthOd !== null
+        ? Math.max(depthId, depthOd)
+        : (depthId !== null ? depthId : (depthOd !== null ? depthOd : 3.0));
 
       if (length && length > 0) {
-        const effectiveDepth = depth || 3.0;
         latestDepth = effectiveDepth;
         recordedLengths.push({ date: camp.date, len: length });
 
@@ -325,15 +372,19 @@ export function parseMatrixRows(
           circumferentialPosition: bestCircPos,
           length,
           depth: effectiveDepth,
+          depthOd,
+          depthId,
+          cladStatus,
+          accumulatedHeight,
           weldPosition,
           indicationType,
           isAfterRepair: camp.isAfterRepair,
         });
 
-        campaignValues[camp.key] = { length, depth: effectiveDepth };
+        campaignValues[camp.key] = { length, depth: effectiveDepth, depthOd, depthId };
         rowObsCount++;
       } else {
-        campaignValues[camp.key] = { length: null, depth: null };
+        campaignValues[camp.key] = { length: null, depth: null, depthOd, depthId };
       }
     });
 
@@ -363,6 +414,12 @@ export function parseMatrixRows(
           hasRepairs,
           latestLength,
           latestDepth,
+          latestDepthOd,
+          latestDepthId,
+          cladStatus,
+          accumulatedHeight,
+          offsetMm,
+          toeType,
           earliestLength,
           growthDelta,
           growthRateYear,
@@ -373,6 +430,8 @@ export function parseMatrixRows(
         const existing = piMap.get(piCode)!;
         existing.observationsCount += rowObsCount;
         if (hasRepairs) existing.hasRepairs = true;
+        if (latestDepthOd !== null) existing.latestDepthOd = latestDepthOd;
+        if (latestDepthId !== null) existing.latestDepthId = latestDepthId;
       }
     }
   });

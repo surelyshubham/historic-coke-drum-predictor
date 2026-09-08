@@ -151,8 +151,14 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
       }),
       new TableRow({
         children: [
-          dataCell("Shell Outer Diameter", 40, true),
+          dataCell("Shell Outer Diameter (OD)", 40, true),
           dataCell(`${vesselInfo.diameter.toFixed(2)} m (Circumference: ~${circumferenceM} m)`, 60),
+        ],
+      }),
+      new TableRow({
+        children: [
+          dataCell("Shell Inner Diameter (ID)", 40, true),
+          dataCell(`${(vesselInfo.diameter - (2 * vesselInfo.nominalThickness) / 1000).toFixed(3)} m (${Math.round((vesselInfo.diameter - (2 * vesselInfo.nominalThickness) / 1000) * 1000)} mm)`, 60),
         ],
       }),
       new TableRow({

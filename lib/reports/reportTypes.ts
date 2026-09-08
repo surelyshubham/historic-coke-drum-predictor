@@ -26,6 +26,8 @@ export interface FlawCampaignRecord {
   inspectionDate: string;
   length: number;
   depth: number;
+  depthOd?: number | null;
+  depthId?: number | null;
 }
 
 export interface ReportIndicationItem {
@@ -38,6 +40,12 @@ export interface ReportIndicationItem {
   weldPosition?: string;
   currentLength: number;
   currentDepth: number;
+  currentDepthOd?: number | null;
+  currentDepthId?: number | null;
+  cladStatus?: string;
+  offsetMm?: number;
+  toeType?: 'TT' | 'BT' | 'BOTH' | 'CENTER';
+  accumulatedHeight?: number | null;
   depthPercentOfWall: number;
   growthRateYear: number;
   warningDate: string | null;

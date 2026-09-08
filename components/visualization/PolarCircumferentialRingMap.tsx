@@ -529,21 +529,49 @@ export function PolarCircumferentialRingMap({
 
             const isSelected = selectedFlawCode === pi.code;
             const flawDepth = Math.max(0.5, pi.latestDepth || 2.5);
-            const arcColor = getFlawDepthColor(flawDepth);
 
-            const isOd = (pi.weldPosition || "").toUpperCase().includes("OD");
-            // Proportion of nominal wall thickness
-            const depthRatio = Math.min(1, Math.max(0.06, flawDepth / nominalWallThickness));
-            const penetrationPx = Math.max(4, depthRatio * wallThicknessPx);
+            // Check if there are separate ID or OD depths
+            const depthId = pi.latestDepthId;
+            const depthOd = pi.latestDepthOd;
+            const hasId = typeof depthId === "number" && depthId > 0;
+            const hasOd = typeof depthOd === "number" && depthOd > 0;
 
-            // Annular sector radial boundaries:
-            // OD initiated: penetrates from outerRadius inward
-            // ID initiated: penetrates from innerRadius outward
-            const rOuterPatch = isOd ? outerRadius : innerRadius + penetrationPx;
-            const rInnerPatch = isOd ? outerRadius - penetrationPx : innerRadius;
+            const patches: Array<{ rInner: number; rOuter: number; color: string; key: string }> = [];
 
-            // Closed annular polygon patch
-            const sectorPath = describeAnnularSector(center, center, rInnerPatch, rOuterPatch, startRad, endRad);
+            if (hasId && hasOd) {
+              // Dual patches: one from ID outward, one from OD inward
+              const idRatio = Math.min(1, Math.max(0.06, depthId / nominalWallThickness));
+              const idPx = Math.max(4, idRatio * wallThicknessPx);
+              patches.push({
+                rInner: innerRadius,
+                rOuter: innerRadius + idPx,
+                color: getFlawDepthColor(depthId),
+                key: "id-patch",
+              });
+
+              const odRatio = Math.min(1, Math.max(0.06, depthOd / nominalWallThickness));
+              const odPx = Math.max(4, odRatio * wallThicknessPx);
+              patches.push({
+                rInner: outerRadius - odPx,
+                rOuter: outerRadius,
+                color: getFlawDepthColor(depthOd),
+                key: "od-patch",
+              });
+            } else {
+              const isOdOnly = hasOd || (pi.weldPosition || "").toUpperCase().includes("OD");
+              const effDepth = hasOd ? depthOd! : (hasId ? depthId! : flawDepth);
+              const depthRatio = Math.min(1, Math.max(0.06, effDepth / nominalWallThickness));
+              const penetrationPx = Math.max(4, depthRatio * wallThicknessPx);
+
+              const rOuterPatch = isOdOnly ? outerRadius : innerRadius + penetrationPx;
+              const rInnerPatch = isOdOnly ? outerRadius - penetrationPx : innerRadius;
+              patches.push({
+                rInner: rInnerPatch,
+                rOuter: rOuterPatch,
+                color: getFlawDepthColor(effDepth),
+                key: "single-patch",
+              });
+            }
 
             return (
               <g
@@ -551,26 +579,30 @@ export function PolarCircumferentialRingMap({
                 onClick={() => onSelectFlaw?.(pi)}
                 className="cursor-pointer group"
               >
-                {/* Depth-Proportional Annular Sector Patch */}
-                <path
-                  d={sectorPath}
-                  fill={arcColor}
-                  fillOpacity="0.88"
-                  stroke={isSelected ? "#0284c7" : "#0f172a"}
-                  strokeWidth={isSelected ? 2.5 : 1}
-                  className="transition-all hover:fill-opacity-100 hover:brightness-105"
-                />
-
-                {/* Glow ring if selected */}
-                {isSelected && (
-                  <path
-                    d={sectorPath}
-                    fill="none"
-                    stroke="#38bdf8"
-                    strokeWidth="3.5"
-                    strokeOpacity="0.85"
-                  />
-                )}
+                {patches.map((p) => {
+                  const sectorPath = describeAnnularSector(center, center, p.rInner, p.rOuter, startRad, endRad);
+                  return (
+                    <g key={p.key}>
+                      <path
+                        d={sectorPath}
+                        fill={p.color}
+                        fillOpacity="0.88"
+                        stroke={isSelected ? "#0284c7" : "#0f172a"}
+                        strokeWidth={isSelected ? 2.5 : 1}
+                        className="transition-all hover:fill-opacity-100 hover:brightness-105"
+                      />
+                      {isSelected && (
+                        <path
+                          d={sectorPath}
+                          fill="none"
+                          stroke="#38bdf8"
+                          strokeWidth="3.5"
+                          strokeOpacity="0.85"
+                        />
+                      )}
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
@@ -657,7 +689,7 @@ export function PolarCircumferentialRingMap({
                     <span className="font-bold text-slate-900">{hoverPolar.hoveredFlaw.latestLength} mm</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Through-Wall Depth:</span>
+                    <span className="text-slate-500">Effective Depth:</span>
                     <span className="font-bold flex items-center gap-1">
                       <span
                         className="w-2.5 h-2.5 rounded-full inline-block"
@@ -669,18 +701,41 @@ export function PolarCircumferentialRingMap({
                       </span>
                     </span>
                   </div>
+                  {typeof hoverPolar.hoveredFlaw.latestDepthId === "number" && (
+                    <div className="flex justify-between text-emerald-800">
+                      <span>Depth from ID:</span>
+                      <span className="font-bold">{hoverPolar.hoveredFlaw.latestDepthId} mm</span>
+                    </div>
+                  )}
+                  {typeof hoverPolar.hoveredFlaw.latestDepthOd === "number" && (
+                    <div className="flex justify-between text-sky-800">
+                      <span>Depth from OD:</span>
+                      <span className="font-bold">{hoverPolar.hoveredFlaw.latestDepthOd} mm</span>
+                    </div>
+                  )}
+                  {hoverPolar.hoveredFlaw.cladStatus && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Clad:</span>
+                      <span className="font-semibold">{hoverPolar.hoveredFlaw.cladStatus}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Initiation Surface:</span>
+                    <span className="text-slate-500">Position / Landmark:</span>
                     <span className="font-semibold text-slate-700">
-                      {(hoverPolar.hoveredFlaw.weldPosition || "").toUpperCase().includes("OD")
-                        ? "OD Surface (Outside)"
-                        : "ID Surface (Inside)"}
+                      {hoverPolar.hoveredFlaw.weldPosition || "Weld Seam"}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Remaining Sound Wall:</span>
                     <span className="font-mono font-bold text-emerald-700">
-                      {Math.max(0, nominalWallThickness - hoverPolar.hoveredFlaw.latestDepth).toFixed(1)} mm
+                      {Math.max(
+                        0,
+                        nominalWallThickness -
+                          ((hoverPolar.hoveredFlaw.latestDepthId || 0) + (hoverPolar.hoveredFlaw.latestDepthOd || 0) > 0
+                            ? (hoverPolar.hoveredFlaw.latestDepthId || 0) + (hoverPolar.hoveredFlaw.latestDepthOd || 0)
+                            : hoverPolar.hoveredFlaw.latestDepth)
+                      ).toFixed(1)}{" "}
+                      mm
                     </span>
                   </div>
                   {hoverPolar.hoveredFlaw.growthRateYear > 0 && (
