@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { 
+  clients,
   cokeDrums, 
   weldJoints, 
   inspections, 
@@ -248,7 +249,20 @@ export async function commitMatrixDatasetAction(payload: {
   const existingDrums = await db.select().from(cokeDrums);
   const drumLookup = new Map<string, number>();
   existingDrums.forEach(d => drumLookup.set(d.name.toUpperCase().trim(), d.id));
-  const defaultClientId = existingDrums[0]?.clientId || 1;
+
+  let defaultClientId = existingDrums[0]?.clientId;
+  if (!defaultClientId) {
+    const existingClients = await db.select().from(clients);
+    if (existingClients.length > 0) {
+      defaultClientId = existingClients[0].id;
+    } else {
+      const [newClient] = await db.insert(clients).values({
+        name: 'Refinery Facility',
+        description: 'Auto-created client facility for uploaded inspection data',
+      }).returning();
+      defaultClientId = newClient.id;
+    }
+  }
 
   for (const drumName of matrixResult.availableDrums) {
     const norm = drumName.toUpperCase().trim();
