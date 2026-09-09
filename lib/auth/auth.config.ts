@@ -23,6 +23,8 @@ export const authConfig = {
       if (user) {
         // @ts-ignore
         token.role = user.role;
+        // @ts-ignore
+        token.id = user.id;
       }
       return token;
     },
@@ -30,6 +32,8 @@ export const authConfig = {
       if (session.user) {
         // @ts-ignore
         session.user.role = token.role as string;
+        // @ts-ignore
+        session.user.id = (token.id || token.sub) as string;
       }
       return session;
     },

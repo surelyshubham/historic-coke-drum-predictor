@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { 
+  users,
   clients,
   cokeDrums, 
   weldJoints, 
@@ -239,206 +240,296 @@ export async function commitMatrixDatasetAction(payload: {
 }) {
   const session = await auth();
   if (session?.user?.role !== "MASTER") {
-    throw new Error("Unauthorized");
+    throw new Error("Unauthorized: Only MASTER engineers can save datasets to the platform.");
   }
 
-  const userId = parseInt(session.user.id as string);
+  // Safe user resolution to prevent NaN database errors
+  let validUserId: number = 1;
+  if (session?.user?.id && !isNaN(parseInt(session.user.id as string, 10))) {
+    validUserId = parseInt(session.user.id as string, 10);
+  } else if (session?.user?.email) {
+    const [dbUser] = await db.select().from(users).where(eq(users.email, session.user.email)).limit(1);
+    if (dbUser) validUserId = dbUser.id;
+  }
+  if (!validUserId) {
+    const [firstMaster] = await db.select().from(users).where(eq(users.role, "MASTER")).limit(1);
+    validUserId = firstMaster?.id || 1;
+  }
+
   const { drumId, matrixResult } = payload;
 
-  // 0. Auto-register all unique drums detected in the matrix if missing
-  const existingDrums = await db.select().from(cokeDrums);
-  const drumLookup = new Map<string, number>();
-  existingDrums.forEach(d => drumLookup.set(d.name.toUpperCase().trim(), d.id));
+  try {
+    // 0. Auto-register all unique drums detected in the matrix if missing
+    const existingDrums = await db.select().from(cokeDrums);
+    const drumLookup = new Map<string, number>();
+    existingDrums.forEach((d) => drumLookup.set(d.name.toUpperCase().trim(), d.id));
 
-  let defaultClientId = existingDrums[0]?.clientId;
-  if (!defaultClientId) {
-    const existingClients = await db.select().from(clients);
-    if (existingClients.length > 0) {
-      defaultClientId = existingClients[0].id;
-    } else {
-      const [newClient] = await db.insert(clients).values({
-        name: 'Refinery Facility',
-        description: 'Auto-created client facility for uploaded inspection data',
-      }).returning();
-      defaultClientId = newClient.id;
+    let defaultClientId = existingDrums[0]?.clientId;
+    if (!defaultClientId) {
+      const existingClients = await db.select().from(clients);
+      if (existingClients.length > 0) {
+        defaultClientId = existingClients[0].id;
+      } else {
+        const [newClient] = await db
+          .insert(clients)
+          .values({
+            name: "Refinery Facility",
+            description: "Auto-created client facility for uploaded inspection data",
+          })
+          .returning();
+        defaultClientId = newClient.id;
+      }
     }
-  }
 
-  for (const drumName of matrixResult.availableDrums) {
-    const norm = drumName.toUpperCase().trim();
-    if (!drumLookup.has(norm)) {
-      const [newDrum] = await db.insert(cokeDrums).values({
-        clientId: defaultClientId,
-        name: drumName,
-        description: `Coke Drum ${drumName}`,
-        diameter: 8.97,
-        nominalThickness: 32.0,
-        material: "SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)",
-        status: "active",
-      }).returning();
-      drumLookup.set(norm, newDrum.id);
+    for (const drumName of matrixResult.availableDrums) {
+      const norm = drumName.toUpperCase().trim();
+      if (!drumLookup.has(norm)) {
+        const [newDrum] = await db
+          .insert(cokeDrums)
+          .values({
+            clientId: defaultClientId,
+            name: drumName,
+            description: `Coke Drum ${drumName}`,
+            diameter: 8.97,
+            nominalThickness: 32.0,
+            material: "SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)",
+            status: "active",
+          })
+          .returning();
+        drumLookup.set(norm, newDrum.id);
+      }
     }
-  }
 
-  const getTargetDrumId = (dName?: string) => {
-    if (!dName) return drumId;
-    return drumLookup.get(dName.toUpperCase().trim()) || drumId;
-  };
+    const getTargetDrumId = (dName?: string) => {
+      if (!dName) return drumId;
+      return drumLookup.get(dName.toUpperCase().trim()) || drumId;
+    };
 
-  // 1. Ensure all referenced weld joints exist for their respective Coke Drum
-  const allExistingWelds = await db.select().from(weldJoints);
-  const weldLookup = new Map<string, number>();
-  allExistingWelds.forEach(w => weldLookup.set(`${w.drumId}_${w.name.toUpperCase().replace(/[^A-Z0-9]/g, '')}`, w.id));
+    // 1. Ensure all referenced weld joints exist for their respective Coke Drum
+    const allExistingWelds = await db.select().from(weldJoints);
+    const weldLookup = new Map<string, number>();
+    allExistingWelds.forEach((w) =>
+      weldLookup.set(`${w.drumId}_${w.name.toUpperCase().replace(/[^A-Z0-9]/g, "")}`, w.id)
+    );
 
-  // Collect distinct (drumId, weldName) pairs
-  const distinctWeldPairs = new Set<string>();
-  matrixResult.physicalIndications.forEach(pi => {
-    if (pi.weldName) {
-      const dId = getTargetDrumId(pi.drumName);
-      distinctWeldPairs.add(`${dId}:::${pi.weldName.trim()}`);
+    const distinctWeldPairs = new Set<string>();
+    matrixResult.physicalIndications.forEach((pi) => {
+      if (pi.weldName) {
+        const dId = getTargetDrumId(pi.drumName);
+        distinctWeldPairs.add(`${dId}:::${pi.weldName.trim()}`);
+      }
+    });
+
+    for (const pair of Array.from(distinctWeldPairs)) {
+      const [dIdStr, wName] = pair.split(":::");
+      const dId = parseInt(dIdStr, 10);
+      const norm = wName.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const key = `${dId}_${norm}`;
+      if (!weldLookup.has(key)) {
+        const [newWeld] = await db
+          .insert(weldJoints)
+          .values({
+            drumId: dId,
+            name: wName,
+            referenceDistance: 0,
+            configuration: "Circumferential Weld",
+          })
+          .returning();
+        weldLookup.set(key, newWeld.id);
+      }
     }
-  });
 
-  for (const pair of Array.from(distinctWeldPairs)) {
-    const [dIdStr, wName] = pair.split(':::');
-    const dId = parseInt(dIdStr, 10);
-    const norm = wName.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const key = `${dId}_${norm}`;
-    if (!weldLookup.has(key)) {
-      const [newWeld] = await db.insert(weldJoints).values({
-        drumId: dId,
-        name: wName,
-        referenceDistance: 0,
-        configuration: 'Circumferential Weld',
-      }).returning();
-      weldLookup.set(key, newWeld.id);
+    // 2. Create or find Inspection campaigns in the database for each active drum
+    const campaignMap = new Map<string, number>();
+    const activeDrumIds = Array.from(
+      new Set(matrixResult.availableDrums.map((d) => getTargetDrumId(d)))
+    );
+
+    for (const targetDrumId of activeDrumIds) {
+      for (const camp of matrixResult.campaigns) {
+        const parsedDate = new Date(camp.date);
+        const inspectionDate = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+        const [newInsp] = await db
+          .insert(inspections)
+          .values({
+            drumId: targetDrumId,
+            campaignName: (camp.label || camp.key || "Campaign").substring(0, 250),
+            inspectionDate,
+            inspectionType: "PAUT/DRM Matrix",
+            processingStatus: "COMPLETED",
+            validationStatus: "VALIDATED",
+            createdBy: validUserId,
+          })
+          .returning();
+        campaignMap.set(`${targetDrumId}_${camp.key}`, newInsp.id);
+      }
     }
-  }
 
-  // 2. Create or find Inspection campaigns in the database for each active drum
-  const campaignMap = new Map<string, number>();
-  const activeDrumIds = Array.from(new Set(matrixResult.availableDrums.map(d => getTargetDrumId(d))));
+    // 3. Batch insert physical indications (chunked to prevent timeouts and duplicate key crashes)
+    const piIdMap = new Map<string, number>();
 
-  for (const targetDrumId of activeDrumIds) {
-    for (const camp of matrixResult.campaigns) {
-      const [newInsp] = await db.insert(inspections).values({
+    // Deduplicate indications by unique code within the matrix payload and limit code length to 48 chars
+    const uniqueIndicationsMap = new Map<string, (typeof matrixResult.physicalIndications)[0]>();
+    matrixResult.physicalIndications.forEach((pi) => {
+      const safeCode =
+        (pi.code || "").trim().length > 48
+          ? (pi.code || "").trim().substring(0, 48)
+          : (pi.code || "").trim();
+      if (safeCode && !uniqueIndicationsMap.has(safeCode)) {
+        uniqueIndicationsMap.set(safeCode, { ...pi, code: safeCode });
+      }
+    });
+
+    const piRows = Array.from(uniqueIndicationsMap.values()).map((pi) => {
+      const targetDrumId = getTargetDrumId(pi.drumName);
+      const normWeld = (pi.weldName || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const wId = weldLookup.get(`${targetDrumId}_${normWeld}`) || allExistingWelds[0]?.id || 1;
+
+      return {
+        code: pi.code,
         drumId: targetDrumId,
-        campaignName: camp.label,
-        inspectionDate: new Date(camp.date),
-        inspectionType: 'PAUT/DRM Matrix',
-        processingStatus: 'COMPLETED',
-        validationStatus: 'VALIDATED',
-        createdBy: userId,
-      }).returning();
-      campaignMap.set(`${targetDrumId}_${camp.key}`, newInsp.id);
-    }
-  }
-
-  // 3. Create persistent Physical Indications under their respective drums
-  const piIdMap = new Map<string, number>();
-  for (const pi of matrixResult.physicalIndications) {
-    const targetDrumId = getTargetDrumId(pi.drumName);
-    const normWeld = pi.weldName.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const wId = weldLookup.get(`${targetDrumId}_${normWeld}`) || allExistingWelds[0]?.id || 1;
-
-    const [insertedPi] = await db.insert(physicalIndications).values({
-      code: pi.code,
-      drumId: targetDrumId,
-      weldJointId: wId,
-      approximateLocation: pi.circumferentialPosition,
-      status: pi.hasRepairs ? 'REPAIRED' : 'ACTIVE',
-      matchingConfidence: 0.98,
-      notes: `${pi.locationText} | ${pi.weldPosition}`,
-    }).returning();
-
-    piIdMap.set(pi.code, insertedPi.id);
-  }
-
-  // 4. Create Observation records and link them via indicationMatches
-  const observationBatch: any[] = [];
-  const piMatchPairs: Array<{ piCode: string; obsIndex: number; isRepair?: boolean }> = [];
-
-  matrixResult.observations.forEach((obs) => {
-    const targetDrumId = getTargetDrumId(obs.drumName);
-    const inspId = campaignMap.get(`${targetDrumId}_${obs.campaignKey}`);
-    if (!inspId) return;
-
-    const normWeld = obs.weldName.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const wId = weldLookup.get(`${targetDrumId}_${normWeld}`) || allExistingWelds[0]?.id || 1;
-
-    observationBatch.push({
-      inspectionId: inspId,
-      sourceIndicationNumber: obs.physicalIndicationCode,
-      weldJointId: wId,
-      circumferentialPosition: obs.circumferentialPosition,
-      length: obs.length,
-      depth: obs.depth,
-      indicationType: obs.indicationType,
-      result: obs.isAfterRepair ? 'POST_REPAIR' : 'RECORDED',
+        weldJointId: wId,
+        approximateLocation:
+          typeof pi.circumferentialPosition === "number" && !isNaN(pi.circumferentialPosition)
+            ? pi.circumferentialPosition
+            : 0,
+        currentLength:
+          typeof pi.latestLength === "number" && !isNaN(pi.latestLength) ? pi.latestLength : 0,
+        currentDepth:
+          typeof pi.latestDepth === "number" && !isNaN(pi.latestDepth) ? pi.latestDepth : 0,
+        status: pi.hasRepairs ? "REPAIRED" : "ACTIVE",
+        matchingConfidence: 0.98,
+        notes: `${pi.locationText || ""} | ${pi.weldPosition || ""}`.substring(0, 490),
+      };
     });
 
-    piMatchPairs.push({
-      piCode: obs.physicalIndicationCode,
-      obsIndex: observationBatch.length - 1,
-      isRepair: obs.isAfterRepair,
-    });
-  });
+    const piChunkSize = 200;
+    for (let i = 0; i < piRows.length; i += piChunkSize) {
+      const chunk = piRows.slice(i, i + piChunkSize);
+      if (chunk.length > 0) {
+        const insertedList = await db
+          .insert(physicalIndications)
+          .values(chunk)
+          .onConflictDoNothing()
+          .returning();
 
-  // Batch insert observations
-  const insertedObservations: any[] = [];
-  const chunkSize = 200;
-  for (let i = 0; i < observationBatch.length; i += chunkSize) {
-    const chunk = observationBatch.slice(i, i + chunkSize);
-    if (chunk.length > 0) {
-      const inserted = await db.insert(inspectionObservations).values(chunk).returning();
-      insertedObservations.push(...inserted);
+        insertedList.forEach((ins) => piIdMap.set(ins.code, ins.id));
+      }
     }
-  }
 
-  // 5. Create Indication Matches
-  const matchValues: any[] = [];
-  piMatchPairs.forEach((pair) => {
-    const piId = piIdMap.get(pair.piCode);
-    const obs = insertedObservations[pair.obsIndex];
-    if (piId && obs) {
-      matchValues.push({
-        physicalIndicationId: piId,
-        observationId: obs.id,
-        confidenceScore: 0.99,
-        confidenceLevel: 'HIGH',
-        matchExplanation: 'Extracted from Master Historical Summary Matrix tracking row',
-        status: 'CONFIRMED',
-        reviewedBy: userId,
-        reviewedAt: new Date(),
+    // If any indications already existed in DB, query their IDs to populate piIdMap
+    const missingCodes = piRows.map((r) => r.code).filter((c) => !piIdMap.has(c));
+    if (missingCodes.length > 0) {
+      for (let i = 0; i < missingCodes.length; i += piChunkSize) {
+        const chunk = missingCodes.slice(i, i + piChunkSize);
+        const existing = await db
+          .select({ id: physicalIndications.id, code: physicalIndications.code })
+          .from(physicalIndications)
+          .where(inArray(physicalIndications.code, chunk));
+        existing.forEach((e) => piIdMap.set(e.code, e.id));
+      }
+    }
+
+    // 4. Create Observation records and link them via indicationMatches
+    const observationBatch: any[] = [];
+    const piMatchPairs: Array<{ piCode: string; obsIndex: number; isRepair?: boolean }> = [];
+
+    matrixResult.observations.forEach((obs) => {
+      const targetDrumId = getTargetDrumId(obs.drumName);
+      const inspId = campaignMap.get(`${targetDrumId}_${obs.campaignKey}`);
+      if (!inspId) return;
+
+      const normWeld = (obs.weldName || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const wId = weldLookup.get(`${targetDrumId}_${normWeld}`) || allExistingWelds[0]?.id || 1;
+
+      const safeLen = typeof obs.length === "number" && !isNaN(obs.length) ? obs.length : 0;
+      const safeDep = typeof obs.depth === "number" && !isNaN(obs.depth) ? obs.depth : 0;
+      const safePos =
+        typeof obs.circumferentialPosition === "number" && !isNaN(obs.circumferentialPosition)
+          ? obs.circumferentialPosition
+          : 0;
+      const safePiCode =
+        (obs.physicalIndicationCode || "").trim().length > 48
+          ? (obs.physicalIndicationCode || "").trim().substring(0, 48)
+          : (obs.physicalIndicationCode || "").trim();
+
+      observationBatch.push({
+        inspectionId: inspId,
+        sourceIndicationNumber: safePiCode,
+        weldJointId: wId,
+        circumferentialPosition: safePos,
+        length: safeLen,
+        depth: safeDep,
+        indicationType: (obs.indicationType || "Crack-like").substring(0, 95),
+        result: obs.isAfterRepair ? "POST_REPAIR" : "RECORDED",
       });
-    }
-  });
 
-  for (let i = 0; i < matchValues.length; i += chunkSize) {
-    const chunk = matchValues.slice(i, i + chunkSize);
-    if (chunk.length > 0) {
-      await db.insert(indicationMatches).values(chunk);
-    }
-  }
+      piMatchPairs.push({
+        piCode: safePiCode,
+        obsIndex: observationBatch.length - 1,
+        isRepair: obs.isAfterRepair,
+      });
+    });
 
-  // 6. Record Audit Log
-  await db.insert(auditLogs).values({
-    userId,
-    action: 'MATRIX_IMPORT',
-    objectType: 'inspections',
-    objectId: String(drumId),
-    newValue: {
-      filename: payload.filename,
+    // Batch insert observations
+    const insertedObservations: any[] = [];
+    const obsChunkSize = 200;
+    for (let i = 0; i < observationBatch.length; i += obsChunkSize) {
+      const chunk = observationBatch.slice(i, i + obsChunkSize);
+      if (chunk.length > 0) {
+        const inserted = await db.insert(inspectionObservations).values(chunk).returning();
+        insertedObservations.push(...inserted);
+      }
+    }
+
+    // 5. Create Indication Matches
+    const matchValues: any[] = [];
+    piMatchPairs.forEach((pair) => {
+      const piId = piIdMap.get(pair.piCode);
+      const obs = insertedObservations[pair.obsIndex];
+      if (piId && obs) {
+        matchValues.push({
+          physicalIndicationId: piId,
+          observationId: obs.id,
+          confidenceScore: 0.99,
+          confidenceLevel: "HIGH",
+          matchExplanation: "Extracted from Master Historical Summary Matrix tracking row",
+          status: "CONFIRMED",
+          reviewedBy: validUserId,
+          reviewedAt: new Date(),
+        });
+      }
+    });
+
+    for (let i = 0; i < matchValues.length; i += obsChunkSize) {
+      const chunk = matchValues.slice(i, i + obsChunkSize);
+      if (chunk.length > 0) {
+        await db.insert(indicationMatches).values(chunk);
+      }
+    }
+
+    // 6. Record Audit Log
+    await db.insert(auditLogs).values({
+      userId: validUserId,
+      action: "MATRIX_IMPORT",
+      objectType: "inspections",
+      objectId: String(drumId),
+      newValue: {
+        filename: payload.filename || "matrix_import.xlsx",
+        campaignsCount: matrixResult.campaigns.length,
+        physicalIndicationsCount: matrixResult.physicalIndications.length,
+        observationsCount: insertedObservations.length,
+      },
+    });
+
+    return {
+      success: true,
       campaignsCount: matrixResult.campaigns.length,
       physicalIndicationsCount: matrixResult.physicalIndications.length,
       observationsCount: insertedObservations.length,
-    },
-  });
-
-  return {
-    success: true,
-    campaignsCount: matrixResult.campaigns.length,
-    physicalIndicationsCount: matrixResult.physicalIndications.length,
-    observationsCount: insertedObservations.length,
-  };
+    };
+  } catch (error: any) {
+    console.error("Critical error in commitMatrixDatasetAction:", error);
+    throw new Error(error.message || "Failed to save dataset to database");
+  }
 }

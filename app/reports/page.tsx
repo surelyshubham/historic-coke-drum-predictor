@@ -497,8 +497,37 @@ export default function ReportsPage() {
 
   if (!payload) {
     return (
-      <div className="p-8 text-center text-slate-500">
-        <p>No report data found. Please ensure coke drums and inspection datasets are imported.</p>
+      <div className="max-w-2xl mx-auto my-12 p-8 bg-white border border-slate-200 rounded-2xl shadow-sm text-center space-y-6">
+        <div className="w-14 h-14 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mx-auto border border-sky-100">
+          <FileSpreadsheet size={28} />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-lg font-bold text-slate-900">No Saved Report Data Yet</h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto">
+            Your database does not contain saved vessels yet. You can upload an inspection Excel matrix directly below to generate full engineering reports instantly, or save it via the Import page.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <label className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs cursor-pointer shadow-sm transition">
+            <Upload size={16} />
+            <span>{uploadingExcel ? "Generating Report..." : "Upload Excel & Generate Report"}</span>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleExcelUpload}
+              disabled={uploadingExcel}
+              className="hidden"
+            />
+          </label>
+
+          <a
+            href="/inspections/import"
+            className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition"
+          >
+            Go to Import Page
+          </a>
+        </div>
       </div>
     );
   }
