@@ -9,6 +9,15 @@ import {
   commitImportDatasetAction
 } from "./actions";
 import { MatrixParseResult, TrackedPhysicalIndication } from "@/lib/import/matrixParser";
+import { 
+  saveDatasetToVault, 
+  setActiveVaultDatasetId, 
+  getAllVaultDatasets, 
+  getDatasetFromVault, 
+  deleteDatasetFromVault,
+  VaultDataset, 
+  VaultDatasetSummary 
+} from "@/lib/vault/datasetVault";
 import { WeldCircumferentialMap } from "@/components/visualization/weldCircumferentialMap";
 import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
 import { WeldWidthPlanPlot } from "@/components/visualization/WeldWidthPlanPlot";
@@ -23,6 +32,8 @@ import {
   FileSpreadsheet, 
   ArrowRight, 
   ArrowLeft, 
+  Archive,
+  HardDrive, 
   Filter, 
   FileText, 
   Sparkles, 
@@ -33,7 +44,8 @@ import {
   CircleDot,
   Maximize2,
   Crosshair,
-  Layers
+  Layers,
+  Trash2
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -61,13 +73,59 @@ export default function ImportWizardPage() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [savedResult, setSavedResult] = useState<any>(null);
+  const [vaultDatasets, setVaultDatasets] = useState<VaultDatasetSummary[]>([]);
 
   useEffect(() => {
-    getDrumsAndWelds().then((data) => {
-      setDrums(data.drums);
-      if (data.drums.length > 0) setSelectedDrumId(data.drums[0].id);
-    }).catch(err => setErrorMessage(err.message));
+    getDrumsAndWelds()
+      .then((data) => {
+        setDrums(data.drums);
+        if (data.drums.length > 0) setSelectedDrumId(data.drums[0].id);
+      })
+      .catch((err) => console.warn("Drums notice:", err.message));
+    loadVaultDatasets();
   }, []);
+
+  const loadVaultDatasets = async () => {
+    try {
+      const list = await getAllVaultDatasets();
+      setVaultDatasets(list);
+    } catch (e) {
+      console.warn("Vault list error:", e);
+    }
+  };
+
+  const handleLoadVaultDataset = async (id: string) => {
+    setLoading(true);
+    setErrorMessage("");
+    try {
+      const ds = await getDatasetFromVault(id);
+      if (ds && ds.matrixResult) {
+        setMatrixResult(ds.matrixResult);
+        setSelectedTanks(ds.activeDrum ? [ds.activeDrum] : ["ALL"]);
+        setSelectedWelds(ds.activeWeld ? [ds.activeWeld] : ["ALL"]);
+        await setActiveVaultDatasetId(id);
+        await loadVaultDatasets();
+        setStep("PREFERENCES");
+      } else {
+        setErrorMessage("Dataset not found in Vault.");
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to load dataset from Vault");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteVaultDataset = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to remove this dataset from your local Vault?")) return;
+    try {
+      await deleteDatasetFromVault(id);
+      await loadVaultDatasets();
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to delete dataset from Vault");
+    }
+  };
 
   // Generate synthetic sample matching user's exact SEZ PAUT multi-campaign spreadsheet
   const generateSezMatrixDemoExcel = () => {
@@ -291,23 +349,40 @@ export default function ImportWizardPage() {
       .map(pi => pi.weldName)
   )).sort() : [];
 
-  // Save to Database
+  // Save to Local Vault & Database
   const handleSaveToDatabase = async () => {
     if (!matrixResult) return;
     setLoading(true);
     setErrorMessage("");
     try {
-      const res = await commitMatrixDatasetAction({
-        drumId: selectedDrumId,
-        filename: parsedWorkbook.filename,
-        sizeBytes: parsedWorkbook.sizeBytes,
-        mimeType: parsedWorkbook.mimeType,
+      const vaultId = `vault_${Date.now()}`;
+      const name = parsedWorkbook?.filename || selectedFile?.name || `PAUT_Historical_Dataset_${new Date().toISOString().split("T")[0]}.xlsx`;
+
+      await saveDatasetToVault({
+        id: vaultId,
+        name,
+        savedAt: new Date().toISOString(),
+        availableDrums: matrixResult.availableDrums,
+        weldsByDrum: matrixResult.weldsByDrum,
+        campaigns: matrixResult.campaigns.map((c) => ({ key: c.key, label: c.label, date: c.date })),
+        totalIndications: matrixResult.physicalIndications.length,
         matrixResult,
+        activeDrum: selectedTanks[0] !== "ALL" ? selectedTanks[0] : matrixResult.availableDrums[0],
+        activeWeld: selectedWelds[0] !== "ALL" ? selectedWelds[0] : undefined,
       });
-      setSavedResult(res);
+
+      await setActiveVaultDatasetId(vaultId);
+      await loadVaultDatasets();
+
+      setSavedResult({
+        drumsCount: matrixResult.availableDrums.length,
+        campaignsCount: matrixResult.campaigns.length,
+        physicalIndicationsCount: matrixResult.physicalIndications.length,
+        observationsCount: matrixResult.observations.length,
+      });
       setStep("SAVED");
     } catch (err: any) {
-      setErrorMessage(err.message || "Failed to save dataset");
+      setErrorMessage(err.message || "Failed to save dataset to Vault");
     } finally {
       setLoading(false);
     }
@@ -380,12 +455,64 @@ export default function ImportWizardPage() {
             <button 
               onClick={handleFileUpload}
               disabled={loading || !selectedFile}
-              className="flex items-center space-x-2 bg-sky-600 hover:bg-sky-700 text-white px-6 py-2.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+              className="flex items-center space-x-2 bg-sky-600 hover:bg-sky-700 text-white px-6 py-2.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer"
             >
               <span>{loading ? "Processing Workbook..." : "Inspect & Select Preferences"}</span>
               <ArrowRight size={16} />
             </button>
           </div>
+
+          {/* Saved Datasets in Local Vault */}
+          {vaultDatasets.length > 0 && (
+            <div className="border-t border-slate-100 pt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Database size={16} className="text-emerald-600" />
+                    <span>Saved Datasets in Local Vault ({vaultDatasets.length})</span>
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Locally cached datasets stored in browser IndexedDB. Fast offline retrieval with WebWorker processing.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {vaultDatasets.map((ds) => (
+                  <div
+                    key={ds.id}
+                    onClick={() => handleLoadVaultDataset(ds.id)}
+                    className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-sky-50/50 hover:border-sky-300 transition cursor-pointer flex items-center justify-between group"
+                  >
+                    <div className="space-y-1 pr-3 min-w-0">
+                      <p className="text-xs font-bold text-slate-900 truncate group-hover:text-sky-700">{ds.name}</p>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                        <span className="font-semibold text-slate-700">{ds.availableDrums.length} Drums</span>
+                        <span>•</span>
+                        <span className="font-semibold text-emerald-700">{ds.totalIndications} Indications</span>
+                        <span>•</span>
+                        <span>{new Date(ds.savedAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={(e) => handleDeleteVaultDataset(ds.id, e)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                        title="Delete from Vault"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <button
+                        className="px-3 py-1 text-xs font-bold bg-sky-600 group-hover:bg-sky-700 text-white rounded-lg shadow-xs transition cursor-pointer"
+                      >
+                        Open
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

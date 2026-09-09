@@ -29,8 +29,27 @@ import {
   Upload,
   FileSpreadsheet,
   XCircle,
-  Sparkles
+  Sparkles,
+  Database
 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { 
+  getActiveVaultDataset, 
+  getAllVaultDatasets, 
+  getDatasetFromVault, 
+  setActiveVaultDatasetId, 
+  saveDatasetToVault,
+  VaultDataset, 
+  VaultDatasetSummary 
+} from "@/lib/vault/datasetVault";
+import { useVaultWorker } from "@/lib/vault/useVaultWorker";
+import { 
+  detectHeaderRow, 
+  detectMatrixFormat, 
+  discoverCampaignsFromHeaders, 
+  parseMatrixRows, 
+  MatrixParseResult 
+} from "@/lib/import/matrixParser";
 
 export default function ReportsPage() {
   const [payload, setPayload] = useState<ReportPayload | null>(null);
@@ -61,11 +80,52 @@ export default function ReportsPage() {
     progressionTable: true,
   });
 
+  const { compileReportPayloadWithWorker } = useVaultWorker();
+  const [vaultDatasets, setVaultDatasets] = useState<VaultDatasetSummary[]>([]);
+  const [activeVaultDataset, setActiveVaultDataset] = useState<VaultDataset | null>(null);
+
   useEffect(() => {
-    loadReport();
+    initializeReports();
   }, []);
 
-  const loadReport = async (drumId?: number, weldId?: number, userThickness?: number, userDia?: number) => {
+  const initializeReports = async () => {
+    setLoading(true);
+    try {
+      const vList = await getAllVaultDatasets();
+      setVaultDatasets(vList);
+
+      const activeDs = await getActiveVaultDataset();
+      if (activeDs && activeDs.matrixResult) {
+        setActiveVaultDataset(activeDs);
+        const compiled = await compileReportPayloadWithWorker({
+          matrix: activeDs.matrixResult,
+          targetDrumName: activeDs.activeDrum,
+          targetWeldName: activeDs.activeWeld,
+          customNominalThickness: customThicknessInput ? Number(customThicknessInput) : undefined,
+          customDiameter: customDiameterInput ? Number(customDiameterInput) : undefined,
+        });
+
+        setPayload(compiled);
+        setSelectedDrumId(compiled.vesselInfo.id);
+        setSelectedWeldId(compiled.selectedWeldId || null);
+        if (compiled.indications.length > 0) {
+          setSelectedIndicationId(compiled.indications[0].id);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // If no active Vault dataset, fallback to database
+      await loadFromDatabase();
+    } catch (err: any) {
+      console.warn("Vault initialization note:", err?.message || err);
+      await loadFromDatabase();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFromDatabase = async (drumId?: number, weldId?: number, userThickness?: number, userDia?: number) => {
     setLoading(true);
     try {
       const data = await getReportData(drumId, weldId, userThickness, userDia);
@@ -76,7 +136,38 @@ export default function ReportsPage() {
         setSelectedIndicationId(data.indications[0].id);
       }
     } catch (err) {
-      console.error("Failed to load report data:", err);
+      console.error("Failed to load report data from database:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSwitchVaultDataset = async (datasetId: string) => {
+    setLoading(true);
+    try {
+      const ds = await getDatasetFromVault(datasetId);
+      if (ds && ds.matrixResult) {
+        await setActiveVaultDatasetId(datasetId);
+        setActiveVaultDataset(ds);
+        setUploadedExcelName(null);
+        setUploadedFile(null);
+
+        const newPayload = await compileReportPayloadWithWorker({
+          matrix: ds.matrixResult,
+          targetDrumName: ds.activeDrum,
+          targetWeldName: ds.activeWeld,
+          customNominalThickness: customThicknessInput ? Number(customThicknessInput) : undefined,
+          customDiameter: customDiameterInput ? Number(customDiameterInput) : undefined,
+        });
+        setPayload(newPayload);
+        setSelectedDrumId(newPayload.vesselInfo.id);
+        setSelectedWeldId(newPayload.selectedWeldId || null);
+        if (newPayload.indications.length > 0) {
+          setSelectedIndicationId(newPayload.indications[0].id);
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to switch vault dataset:", err);
     } finally {
       setLoading(false);
     }
@@ -88,23 +179,73 @@ export default function ReportsPage() {
 
     setUploadingExcel(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array", raw: false, cellDates: false });
 
-      const parsedPayload = await parseUploadedExcelReportData(
-        formData,
-        undefined,
-        undefined,
-        customThicknessInput ? Number(customThicknessInput) : undefined,
-        customDiameterInput ? Number(customDiameterInput) : undefined
-      );
-      setPayload(parsedPayload);
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error("Uploaded workbook contains no sheets.");
+      }
+
+      let parsedMatrix: MatrixParseResult | null = null;
+      for (const sName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sName];
+        const rawAoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+        const { headerIndex, headers } = detectHeaderRow(rawAoa);
+        const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+          range: headerIndex,
+          defval: "",
+          raw: false,
+        });
+
+        if (jsonRows.length > 0) {
+          const isMatrix = detectMatrixFormat(headers);
+          const campaigns = isMatrix ? discoverCampaignsFromHeaders(headers) : [];
+          if (campaigns.length > 0) {
+            parsedMatrix = parseMatrixRows(jsonRows, headers, campaigns);
+            break;
+          }
+        }
+      }
+
+      if (!parsedMatrix || parsedMatrix.physicalIndications.length === 0) {
+        throw new Error("Could not parse PAUT inspection matrix from the uploaded Excel file. Please verify multi-campaign columns.");
+      }
+
+      // Save to client Vault!
+      const vaultId = `vault_${Date.now()}`;
+      const newVaultEntry: VaultDataset = {
+        id: vaultId,
+        name: file.name,
+        savedAt: new Date().toISOString(),
+        availableDrums: parsedMatrix.availableDrums,
+        weldsByDrum: parsedMatrix.weldsByDrum,
+        campaigns: parsedMatrix.campaigns.map((c) => ({ key: c.key, label: c.label, date: c.date })),
+        totalIndications: parsedMatrix.physicalIndications.length,
+        matrixResult: parsedMatrix,
+        activeDrum: parsedMatrix.availableDrums[0],
+      };
+
+      await saveDatasetToVault(newVaultEntry);
+      await setActiveVaultDatasetId(vaultId);
+      const vList = await getAllVaultDatasets();
+      setVaultDatasets(vList);
+      setActiveVaultDataset(newVaultEntry);
+
+      // Compile in background WebWorker!
+      const newPayload = await compileReportPayloadWithWorker({
+        matrix: parsedMatrix,
+        targetDrumName: parsedMatrix.availableDrums[0],
+        customNominalThickness: customThicknessInput ? Number(customThicknessInput) : undefined,
+        customDiameter: customDiameterInput ? Number(customDiameterInput) : undefined,
+      });
+
+      setPayload(newPayload);
       setUploadedExcelName(file.name);
       setUploadedFile(file);
-      setSelectedDrumId(parsedPayload.vesselInfo.id);
-      setSelectedWeldId(parsedPayload.selectedWeldId);
-      if (parsedPayload.indications.length > 0) {
-        setSelectedIndicationId(parsedPayload.indications[0].id);
+      setSelectedDrumId(newPayload.vesselInfo.id);
+      setSelectedWeldId(newPayload.selectedWeldId || null);
+      if (newPayload.indications.length > 0) {
+        setSelectedIndicationId(newPayload.indications[0].id);
       }
     } catch (err: any) {
       console.error("Failed to parse uploaded Excel report:", err);
@@ -118,20 +259,54 @@ export default function ReportsPage() {
     setUploadedExcelName(null);
     setUploadedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    loadReport(
-      undefined,
-      undefined,
-      customThicknessInput ? Number(customThicknessInput) : undefined,
-      customDiameterInput ? Number(customDiameterInput) : undefined
-    );
+    if (activeVaultDataset && activeVaultDataset.matrixResult) {
+      compileReportPayloadWithWorker({
+        matrix: activeVaultDataset.matrixResult,
+        targetDrumName: activeVaultDataset.activeDrum,
+        targetWeldName: activeVaultDataset.activeWeld,
+      }).then((newPayload) => {
+        setPayload(newPayload);
+        setSelectedDrumId(newPayload.vesselInfo.id);
+        setSelectedWeldId(newPayload.selectedWeldId || null);
+      });
+    } else {
+      loadFromDatabase(
+        undefined,
+        undefined,
+        customThicknessInput ? Number(customThicknessInput) : undefined,
+        customDiameterInput ? Number(customDiameterInput) : undefined
+      );
+    }
   };
 
   const handleDrumChange = async (id: number) => {
     setSelectedDrumId(id);
     setSelectedWeldId(null);
 
+    if (activeVaultDataset && activeVaultDataset.matrixResult) {
+      const drumObj = payload?.availableDrums.find((d) => d.id === id);
+      const targetDrumName = drumObj ? drumObj.name : activeVaultDataset.matrixResult.availableDrums[0];
+      setLoading(true);
+      try {
+        const newPayload = await compileReportPayloadWithWorker({
+          matrix: activeVaultDataset.matrixResult,
+          targetDrumName,
+          targetWeldName: undefined,
+          customNominalThickness: customThicknessInput ? Number(customThicknessInput) : undefined,
+          customDiameter: customDiameterInput ? Number(customDiameterInput) : undefined,
+        });
+        setPayload(newPayload);
+        setSelectedIndicationId(newPayload.indications[0]?.id ?? null);
+      } catch (err) {
+        console.error("Worker error on drum switch:", err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (uploadedFile && payload) {
-      const drumObj = payload.availableDrums.find(d => d.id === id);
+      const drumObj = payload.availableDrums.find((d) => d.id === id);
       if (drumObj) {
         setLoading(true);
         try {
@@ -153,7 +328,7 @@ export default function ReportsPage() {
         }
       }
     } else {
-      loadReport(
+      loadFromDatabase(
         id, 
         undefined,
         customThicknessInput ? Number(customThicknessInput) : undefined,
@@ -165,9 +340,33 @@ export default function ReportsPage() {
   const handleWeldChange = async (wId: number | null) => {
     setSelectedWeldId(wId);
 
+    if (activeVaultDataset && activeVaultDataset.matrixResult) {
+      const activeDrum = payload?.availableDrums.find((d) => d.id === selectedDrumId) || payload?.availableDrums[0];
+      const weldObj = wId ? payload?.availableWelds.find((w) => w.id === wId) : null;
+      const targetWeldName = weldObj ? weldObj.name : undefined;
+
+      setLoading(true);
+      try {
+        const newPayload = await compileReportPayloadWithWorker({
+          matrix: activeVaultDataset.matrixResult,
+          targetDrumName: activeDrum?.name,
+          targetWeldName,
+          customNominalThickness: customThicknessInput ? Number(customThicknessInput) : undefined,
+          customDiameter: customDiameterInput ? Number(customDiameterInput) : undefined,
+        });
+        setPayload(newPayload);
+        setSelectedIndicationId(newPayload.indications[0]?.id ?? null);
+      } catch (err) {
+        console.error("Worker error on weld switch:", err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (uploadedFile && payload) {
-      const activeDrum = payload.availableDrums.find(d => d.id === selectedDrumId) || payload.availableDrums[0];
-      const weldObj = wId ? payload.availableWelds.find(w => w.id === wId) : null;
+      const activeDrum = payload.availableDrums.find((d) => d.id === selectedDrumId) || payload.availableDrums[0];
+      const weldObj = wId ? payload.availableWelds.find((w) => w.id === wId) : null;
       const targetWeldName = weldObj ? weldObj.name : "ALL";
 
       setLoading(true);
@@ -189,12 +388,124 @@ export default function ReportsPage() {
         setLoading(false);
       }
     } else {
-      loadReport(
+      loadFromDatabase(
         selectedDrumId || undefined, 
         wId || undefined,
         customThicknessInput ? Number(customThicknessInput) : undefined,
         customDiameterInput ? Number(customDiameterInput) : undefined
       );
+    }
+  };
+
+  const handleLoadDemoDataset = async () => {
+    setLoading(true);
+    try {
+      const demoRows = [
+        {
+          "COKE DRUM NO": "R01",
+          "JOINT NO": "C6",
+          "SEGMENT [M]": "6-9",
+          "DEFECT LOCATION FROM '0' POINT [MM] MAY-25": "7400-8400",
+          "OCT-23 LENGTH [MM]": "600",
+          "APRIL-24 LENGTH [MM]": "650",
+          "SEP-24 LENGTH [MM]": "950",
+          "MAY-25 LENGTH [MM]": "1000",
+          "FEB-2026 LENGTH [MM]": "1000",
+          "MAY-2026 LENGTH [MM]": "1000",
+          "SEP-OCT'-25 DEPTH FROM OD [MM]": "2",
+          "FEB-26 DEPTH FROM OD [MM]": "2",
+          "DEFECT POSITION ON WELD [TOP TOE & BOTTOM TOE]": "30MM BT",
+          "INDICATION TYPE": "Crack-like"
+        },
+        {
+          "COKE DRUM NO": "R01",
+          "JOINT NO": "C6",
+          "SEGMENT [M]": "9-12",
+          "DEFECT LOCATION FROM '0' POINT [MM] MAY-25": "9860-10000",
+          "OCT-23 LENGTH [MM]": "NIL",
+          "APRIL-24 LENGTH [MM]": "100",
+          "SEP-24 LENGTH [MM]": "130",
+          "MAY-25 LENGTH [MM]": "140",
+          "FEB-2026 LENGTH [MM]": "140",
+          "MAY-2026 LENGTH [MM]": "140",
+          "SEP-OCT'-25 DEPTH FROM OD [MM]": "2",
+          "FEB-26 DEPTH FROM OD [MM]": "2",
+          "DEFECT POSITION ON WELD [TOP TOE & BOTTOM TOE]": "30MM BT",
+          "INDICATION TYPE": "Crack-like"
+        },
+        {
+          "COKE DRUM NO": "R01",
+          "JOINT NO": "C5",
+          "SEGMENT [M]": "3-6",
+          "DEFECT LOCATION FROM '0' POINT [MM] MAY-25": "4500-4750",
+          "OCT-23 LENGTH [MM]": "120",
+          "APRIL-24 LENGTH [MM]": "150",
+          "SEP-24 LENGTH [MM]": "180",
+          "MAY-25 LENGTH [MM]": "250",
+          "FEB-2026 LENGTH [MM]": "250",
+          "MAY-2026 LENGTH [MM]": "250",
+          "SEP-OCT'-25 DEPTH FROM OD [MM]": "3.5",
+          "FEB-26 DEPTH FROM OD [MM]": "3.8",
+          "DEFECT POSITION ON WELD [TOP TOE & BOTTOM TOE]": "45MM TT",
+          "INDICATION TYPE": "Crack-like"
+        },
+        {
+          "COKE DRUM NO": "R02",
+          "JOINT NO": "C4",
+          "SEGMENT [M]": "0-3",
+          "DEFECT LOCATION FROM '0' POINT [MM] MAY-25": "1200-1450",
+          "OCT-23 LENGTH [MM]": "180",
+          "APRIL-24 LENGTH [MM]": "200",
+          "SEP-24 LENGTH [MM]": "220",
+          "MAY-25 LENGTH [MM]": "250",
+          "FEB-2026 LENGTH [MM]": "250",
+          "MAY-2026 LENGTH [MM]": "250",
+          "SEP-OCT'-25 DEPTH FROM OD [MM]": "4.2",
+          "FEB-26 DEPTH FROM OD [MM]": "4.5",
+          "DEFECT POSITION ON WELD [TOP TOE & BOTTOM TOE]": "Center Seam",
+          "INDICATION TYPE": "Planar flaw"
+        }
+      ];
+
+      const headers = Object.keys(demoRows[0]);
+      const campaigns = discoverCampaignsFromHeaders(headers);
+      const parsedMatrix = parseMatrixRows(demoRows, headers, campaigns);
+
+      const vaultId = `vault_${Date.now()}`;
+      const demoVaultEntry: VaultDataset = {
+        id: vaultId,
+        name: "Demo_SEZ_PAUT_MultiCampaign_Matrix.xlsx",
+        savedAt: new Date().toISOString(),
+        availableDrums: parsedMatrix.availableDrums,
+        weldsByDrum: parsedMatrix.weldsByDrum,
+        campaigns: parsedMatrix.campaigns.map((c) => ({ key: c.key, label: c.label, date: c.date })),
+        totalIndications: parsedMatrix.physicalIndications.length,
+        matrixResult: parsedMatrix,
+        activeDrum: parsedMatrix.availableDrums[0],
+      };
+
+      await saveDatasetToVault(demoVaultEntry);
+      await setActiveVaultDatasetId(vaultId);
+      const vList = await getAllVaultDatasets();
+      setVaultDatasets(vList);
+      setActiveVaultDataset(demoVaultEntry);
+
+      const newPayload = await compileReportPayloadWithWorker({
+        matrix: parsedMatrix,
+        targetDrumName: parsedMatrix.availableDrums[0],
+      });
+
+      setPayload(newPayload);
+      setSelectedDrumId(newPayload.vesselInfo.id);
+      setSelectedWeldId(newPayload.selectedWeldId || null);
+      if (newPayload.indications.length > 0) {
+        setSelectedIndicationId(newPayload.indications[0].id);
+      }
+    } catch (err: any) {
+      console.error("Demo load error:", err);
+      alert(err.message || "Failed to generate demo dataset");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -504,14 +815,14 @@ export default function ReportsPage() {
         <div className="space-y-2">
           <h3 className="text-lg font-bold text-slate-900">No Saved Report Data Yet</h3>
           <p className="text-sm text-slate-500 max-w-md mx-auto">
-            Your database does not contain saved vessels yet. You can upload an inspection Excel matrix directly below to generate full engineering reports instantly, or save it via the Import page.
+            Load an inspection Excel file into your local Vault or generate an instant demo report to explore all 4 engineering views, historical growth curves, and lifing forecasts.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
           <label className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs cursor-pointer shadow-sm transition">
             <Upload size={16} />
-            <span>{uploadingExcel ? "Generating Report..." : "Upload Excel & Generate Report"}</span>
+            <span>{uploadingExcel ? "Generating Report..." : "Upload Excel & Save to Vault"}</span>
             <input
               type="file"
               accept=".xlsx,.xls,.csv"
@@ -521,6 +832,14 @@ export default function ReportsPage() {
             />
           </label>
 
+          <button
+            onClick={handleLoadDemoDataset}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer shadow-sm transition"
+          >
+            <Sparkles size={16} />
+            <span>Load Demo SEZ Sample Dataset</span>
+          </button>
+
           <a
             href="/inspections/import"
             className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition"
@@ -528,6 +847,27 @@ export default function ReportsPage() {
             Go to Import Page
           </a>
         </div>
+
+        {vaultDatasets.length > 0 && (
+          <div className="border-t border-slate-100 pt-5 text-left space-y-2">
+            <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <Database size={14} className="text-emerald-600" />
+              <span>Or open from your Local Vault ({vaultDatasets.length} saved datasets):</span>
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {vaultDatasets.map((ds) => (
+                <button
+                  key={ds.id}
+                  onClick={() => handleSwitchVaultDataset(ds.id)}
+                  className="text-left p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-sky-50 text-xs font-semibold text-slate-800 flex items-center justify-between transition cursor-pointer"
+                >
+                  <span className="truncate pr-2">{ds.name}</span>
+                  <span className="text-[11px] text-emerald-700 font-bold shrink-0">{ds.totalIndications} flaws</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -698,7 +1038,25 @@ export default function ReportsPage() {
         {/* Filters and Section Toggles */}
         <div className="pt-3 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
           {/* Drum & Weld Selectors */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {vaultDatasets.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 rounded-lg px-2.5 py-1">
+                <Database size={13} className="text-emerald-700 shrink-0" />
+                <span className="font-bold text-emerald-900">Vault Dataset:</span>
+                <select
+                  value={activeVaultDataset?.id || ""}
+                  onChange={(e) => handleSwitchVaultDataset(e.target.value)}
+                  className="bg-white border border-emerald-300 rounded px-2 py-0.5 text-xs font-bold text-slate-800 focus:ring-1 focus:ring-emerald-500 focus:outline-none max-w-[170px] truncate"
+                >
+                  {vaultDatasets.map((ds) => (
+                    <option key={ds.id} value={ds.id}>
+                      {ds.name} ({ds.totalIndications} flaws)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="flex items-center gap-1.5">
               <span className="font-semibold text-slate-700">Coke Drum:</span>
               <select
