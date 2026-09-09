@@ -579,7 +579,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
                   }),
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { after: 200 },
+                    spacing: { after: 160 },
                     children: [
                       new TextRun({
                         text: `Figure 4.${wIdx + 1}.4: Predictive Growth Extrapolation & Lifing Forecast Curve — Seam ${wName}`,
@@ -590,6 +590,75 @@ export function createDocxDocument(payload: ReportPayload): Document {
                       }),
                     ],
                   })
+                );
+              }
+
+              // 5. Per-Weld Seam Defect Progression Table
+              const thisWeldFlaws = indications.filter((i) => i.weldName === wName);
+              if (thisWeldFlaws.length > 0) {
+                const weldTableRows: TableRow[] = [
+                  new TableRow({
+                    children: [
+                      headerCell("FLAW ID", 14),
+                      headerCell("CIRC POS", 14),
+                      headerCell("WELD POS", 14),
+                      headerCell("LENGTH", 12),
+                      headerCell("DEPTH", 14),
+                      headerCell("% WALL", 10),
+                      headerCell("RATE", 10),
+                      headerCell("TIER", 12),
+                    ],
+                  }),
+                ];
+
+                for (const f of thisWeldFlaws) {
+                  const tierColor =
+                    f.riskTier === "CRITICAL"
+                      ? "dc2626"
+                      : f.riskTier === "HIGH"
+                      ? "ea580c"
+                      : f.riskTier === "MODERATE"
+                      ? "d97706"
+                      : "16a34a";
+
+                  const depthText = f.currentDepthOd
+                    ? `${f.currentDepth} mm (OD: ${f.currentDepthOd})`
+                    : `${f.currentDepth} mm`;
+
+                  weldTableRows.push(
+                    new TableRow({
+                      children: [
+                        dataCell(f.code, 14, true),
+                        dataCell(`${f.circumferentialPosition} mm`, 14),
+                        dataCell(f.weldPosition || "Center Seam", 14),
+                        dataCell(`${f.currentLength} mm`, 12),
+                        dataCell(depthText, 14, true),
+                        dataCell(`${f.depthPercentOfWall}%`, 10, true, tierColor),
+                        dataCell(`+${f.growthRateYear} mm/yr`, 10),
+                        dataCell(f.riskTier, 12, true, tierColor, AlignmentType.CENTER),
+                      ],
+                    })
+                  );
+                }
+
+                paras.push(
+                  new Paragraph({
+                    heading: HeadingLevel.HEADING_3,
+                    spacing: { before: 140, after: 60 },
+                    children: [
+                      new TextRun({
+                        text: `Table 4.${wIdx + 1}: Detailed Defect Indications Registry — Seam ${wName} (${thisWeldFlaws.length} Indications)`,
+                        bold: true,
+                        size: 18,
+                        color: "0f172a",
+                      }),
+                    ],
+                  }),
+                  new Table({
+                    width: { size: 100, type: WidthType.PERCENTAGE },
+                    rows: weldTableRows,
+                  }),
+                  new Paragraph({ spacing: { after: 220 } })
                 );
               }
             });

@@ -515,7 +515,18 @@ export default function ReportsPage() {
     try {
       const container = document.getElementById(containerId);
       if (!container) return undefined;
-      const svg = container.querySelector("svg");
+
+      // Find all SVGs in container and select the chart SVG (ignore tiny Lucide icons)
+      const allSvgs = Array.from(container.querySelectorAll("svg"));
+      if (allSvgs.length === 0) return undefined;
+
+      const svg = allSvgs.find((s) => {
+        const isLucide = s.classList.contains("lucide") || (s.getAttribute("width") && Number(s.getAttribute("width")) <= 30);
+        const hasViewBox = s.hasAttribute("viewBox");
+        const clientW = s.clientWidth || 0;
+        return !isLucide && (hasViewBox || clientW > 100);
+      }) || allSvgs.find((s) => !s.classList.contains("lucide")) || allSvgs[allSvgs.length - 1];
+
       if (!svg) return undefined;
 
       const svgData = new XMLSerializer().serializeToString(svg);
@@ -1508,7 +1519,7 @@ export default function ReportsPage() {
                     <span className="text-[11px] text-slate-500">Campaign progression &amp; Net Growth Deltas</span>
                   </div>
 
-                  <div id={`report-historical-graph-${weldName}`}>
+                  <div>
                     <WeldHistoricalVsCurrentGraph
                       indications={weldIndications}
                       campaignNames={payload.allCampaignNames || []}
