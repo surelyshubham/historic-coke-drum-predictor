@@ -10,6 +10,7 @@ import { WeldWidthPlanPlot } from "@/components/visualization/WeldWidthPlanPlot"
 import { WeldBevelSScanProfile } from "@/components/visualization/WeldBevelSScanProfile";
 import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
 import { WeldHistoricalVsCurrentGraph } from "@/components/visualization/WeldHistoricalVsCurrentGraph";
+import { generateDocxReportBlob } from "@/lib/reports/docxGenerator";
 import { 
   FileText, 
   Download, 
@@ -522,33 +523,58 @@ export default function ReportsPage() {
       const URL = window.URL || window.webkitURL || window;
       const blobURL = URL.createObjectURL(svgBlob);
 
-      return await new Promise<string>((resolve, reject) => {
+      return await new Promise<string>((resolve) => {
         const image = new Image();
-        image.onload = () => {
-          const canvas = document.createElement("canvas");
-          // 2x high-resolution rendering
-          const scale = 2;
-          canvas.width = (svg.clientWidth || 800) * scale;
-          canvas.height = (svg.clientHeight || 400) * scale;
+        let finished = false;
 
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            resolve("");
-            return;
+        const cleanup = () => {
+          if (!finished) {
+            finished = true;
+            URL.revokeObjectURL(blobURL);
           }
-
-          // Crisp white background for Word document
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-          URL.revokeObjectURL(blobURL);
-          resolve(canvas.toDataURL("image/png"));
         };
-        image.onerror = (e) => {
-          URL.revokeObjectURL(blobURL);
+
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          resolve("");
+        }, 3000);
+
+        image.onload = () => {
+          if (finished) return;
+          clearTimeout(timeoutId);
+          try {
+            const canvas = document.createElement("canvas");
+            const scale = 1.5;
+            canvas.width = Math.max(200, (svg.clientWidth || 800) * scale);
+            canvas.height = Math.max(100, (svg.clientHeight || 400) * scale);
+
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              cleanup();
+              resolve("");
+              return;
+            }
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL("image/png");
+            cleanup();
+            resolve(dataUrl);
+          } catch {
+            cleanup();
+            resolve("");
+          }
+        };
+
+        image.onerror = () => {
+          if (finished) return;
+          clearTimeout(timeoutId);
+          cleanup();
           resolve("");
         };
+
         image.src = blobURL;
       });
     } catch (err) {
@@ -611,34 +637,26 @@ export default function ReportsPage() {
         },
         executiveSummary: effectiveExecutiveSummary || payload.executiveSummary,
         indications: displayIndications.filter((ind) => weldsToProcess.includes(ind.weldName)),
+        images,
       };
 
-      const res = await fetch("/api/reports/docx", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          drumId: selectedDrumId,
-          weldId: selectedWeldId,
-          customPayload: activePayloadForDocx,
-          images,
-        }),
-      });
+      // Generate document directly in browser to bypass Vercel serverless request body limits
+      setExportProgressText("Building Word (.docx) document locally in browser memory...");
+      const blob = await generateDocxReportBlob(activePayloadForDocx);
 
-      if (!res.ok) throw new Error("Failed to generate DOCX file");
-
-      const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Coke_Drum_${payload.vesselInfo.name}_PAUT_Report.docx`;
+      const safeDrumName = (payload.vesselInfo?.name || "Vessel").replace(/[^a-zA-Z0-9_-]/g, "_");
+      a.download = `Coke_Drum_${safeDrumName}_PAUT_Report.docx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       setIsExportModalOpen(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("DOCX download error:", err);
-      alert("Could not generate Word document. Please try again.");
+      alert(`Could not generate Word document: ${err?.message || "Please try again."}`);
     } finally {
       setExportingDocx(false);
       setExportProgressText("");
@@ -1490,17 +1508,19 @@ export default function ReportsPage() {
                     <span className="text-[11px] text-slate-500">Campaign progression &amp; Net Growth Deltas</span>
                   </div>
 
-                  <WeldHistoricalVsCurrentGraph
-                    indications={weldIndications}
-                    campaignNames={payload.allCampaignNames || []}
-                    weldName={weldName}
-                    nominalWallThickness={effectiveNominalThickness}
-                    selectedFlawCode={weldSelectedInd?.code}
-                    onSelectFlaw={(code) => {
-                      const found = displayIndications.find((i) => i.code === code);
-                      if (found) setSelectedIndicationId(found.id);
-                    }}
-                  />
+                  <div id={`report-historical-graph-${weldName}`}>
+                    <WeldHistoricalVsCurrentGraph
+                      indications={weldIndications}
+                      campaignNames={payload.allCampaignNames || []}
+                      weldName={weldName}
+                      nominalWallThickness={effectiveNominalThickness}
+                      selectedFlawCode={weldSelectedInd?.code}
+                      onSelectFlaw={(code) => {
+                        const found = displayIndications.find((i) => i.code === code);
+                        if (found) setSelectedIndicationId(found.id);
+                      }}
+                    />
+                  </div>
                 </div>
 
                 {/* 2.X.5 Predictive Growth Extrapolation & Lifing Curve for Seam */}

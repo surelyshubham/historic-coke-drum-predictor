@@ -17,19 +17,29 @@ import {
 } from "docx";
 import { ReportPayload } from "./reportTypes";
 
-function parseBase64Image(dataUrl?: string): Buffer | null {
+function parseBase64Image(dataUrl?: string): Uint8Array | null {
   if (!dataUrl) return null;
   try {
     const base64Str = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
-    const buf = Buffer.from(base64Str, "base64");
-    return buf.length > 50 ? buf : null;
+    if (typeof window !== "undefined") {
+      const binaryString = window.atob(base64Str);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes.length > 50 ? bytes : null;
+    } else {
+      const buf = Buffer.from(base64Str, "base64");
+      return buf.length > 50 ? new Uint8Array(buf) : null;
+    }
   } catch (err) {
     console.error("Failed parsing base64 image for DOCX:", err);
     return null;
   }
 }
 
-export async function generateDocxReport(payload: ReportPayload): Promise<Buffer> {
+export function createDocxDocument(payload: ReportPayload): Document {
   const { vesselInfo, executiveSummary, indications, allCampaignNames } = payload;
   const circumferenceM = Number(((vesselInfo.diameter * Math.PI)).toFixed(2));
   const dateStr = new Date().toLocaleDateString("en-US", {
@@ -680,5 +690,15 @@ export async function generateDocxReport(payload: ReportPayload): Promise<Buffer
     ],
   });
 
+  return doc;
+}
+
+export async function generateDocxReport(payload: ReportPayload): Promise<Buffer> {
+  const doc = createDocxDocument(payload);
   return await Packer.toBuffer(doc);
+}
+
+export async function generateDocxReportBlob(payload: ReportPayload): Promise<Blob> {
+  const doc = createDocxDocument(payload);
+  return await Packer.toBlob(doc);
 }
