@@ -1057,12 +1057,48 @@ export default function ReportsPage() {
                   </div>
                 )}
 
-                {/* 2.X.3 Historical vs. Current Inspection Comparison Graph */}
+                {/* 2.X.3 Through-Thickness Bevel S-Scan Profile */}
+                {sections.bevelSScan && weldSelectedInd && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                        2.{weldIdx + 1}.3 Through-Thickness Bevel S-Scan Profile — Seam {weldName} (Flaw {weldSelectedInd.code})
+                      </h5>
+                      <span className="text-[11px] text-slate-500">
+                        Nominal Wall: <strong>{effectiveNominalThickness} mm</strong> • OD (Top) / ID (Bottom) Transverse Cut
+                      </span>
+                    </div>
+
+                    <div id={`report-bevel-sscan-${weldName}`} className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs">
+                      <WeldBevelSScanProfile
+                        indication={
+                          weldTracked.find((t) => t.code === weldSelectedInd.code) ||
+                          weldTracked[0] ||
+                          ({
+                            code: weldSelectedInd.code,
+                            weldName: weldName,
+                            drumName: vesselInfo.name,
+                            circumferentialPosition: weldSelectedInd.circumferentialPosition,
+                            latestLength: weldSelectedInd.currentLength,
+                            latestDepth: weldSelectedInd.currentDepth,
+                            latestDepthId: weldSelectedInd.currentDepthId,
+                            latestDepthOd: weldSelectedInd.currentDepthOd,
+                            weldPosition: weldSelectedInd.weldPosition,
+                          } as any)
+                        }
+                        nominalWallThickness={effectiveNominalThickness}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 2.X.4 Historical vs. Current Inspection Comparison Graph */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                     <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
-                      2.{weldIdx + 1}.3 Historical vs. Current Inspection Comparison — Seam {weldName}
+                      2.{weldIdx + 1}.4 Historical vs. Current Inspection Comparison — Seam {weldName}
                     </h5>
                     <span className="text-[11px] text-slate-500">Campaign progression &amp; Net Growth Deltas</span>
                   </div>
@@ -1080,13 +1116,13 @@ export default function ReportsPage() {
                   />
                 </div>
 
-                {/* 2.X.4 Predictive Growth Extrapolation & Lifing Curve for Seam */}
+                {/* 2.X.5 Predictive Growth Extrapolation & Lifing Curve for Seam */}
                 {sections.predictiveForecast && weldSelectedInd && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                       <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
-                        2.{weldIdx + 1}.4 Predictive Growth &amp; Remaining Life Forecast — Seam {weldName} (Flaw {weldSelectedInd.code})
+                        2.{weldIdx + 1}.5 Predictive Growth &amp; Remaining Life Forecast — Seam {weldName} (Flaw {weldSelectedInd.code})
                       </h5>
                       <span className="text-[11px] text-slate-500">
                         Rate: <strong>+{weldSelectedInd.growthRateYear} mm/yr</strong> • Manual Override Enabled
@@ -1104,13 +1140,13 @@ export default function ReportsPage() {
                   </div>
                 )}
 
-                {/* 2.X.5 Weld Specific Data Table */}
+                {/* 2.X.6 Weld Specific Data Table */}
                 {sections.progressionTable && (
                   <div className="space-y-3 pt-1">
                     <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                       <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
-                        2.{weldIdx + 1}.5 Defect Progression Table — Seam {weldName}
+                        2.{weldIdx + 1}.6 Defect Progression Table — Seam {weldName}
                       </h5>
                       <span className="text-[11px] text-slate-500">{weldIndications.length} Indications</span>
                     </div>
