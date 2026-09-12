@@ -2,6 +2,7 @@
 
 import { useState, useRef, useMemo } from "react";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
+import { RepairZone } from "@/types/repair";
 
 interface PolarCircumferentialRingMapProps {
   indications: TrackedPhysicalIndication[];
@@ -11,6 +12,7 @@ interface PolarCircumferentialRingMapProps {
   weldName?: string;
   totalCircumferenceMm?: number; // default ~28180 mm (28.2m)
   nominalWallThickness?: number; // default 32.0 mm
+  repairZones?: RepairZone[];
 }
 
 interface PolarDefectBadgeProps {
@@ -72,6 +74,7 @@ export function PolarCircumferentialRingMap({
   weldName = "Weld Seam",
   totalCircumferenceMm = 28180,
   nominalWallThickness = 32.0,
+  repairZones = [],
 }: PolarCircumferentialRingMapProps) {
   const [hoverPolar, setHoverPolar] = useState<{
     xPx: number;
@@ -82,6 +85,7 @@ export function PolarCircumferentialRingMap({
     percentCircumference: number;
     currentSlot: string;
     hoveredFlaw: TrackedPhysicalIndication | null;
+    activeRepairZone: RepairZone | null;
   } | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -294,6 +298,14 @@ export function PolarCircumferentialRingMap({
       }
     }
 
+    // Check if hovering within a repaired / replaced zone
+    const activeRepairZone = (repairZones || []).find(rz => {
+      const wraps = rz.endMm > totalCircumferenceMm;
+      return wraps
+        ? (positionMm >= rz.startMm || positionMm <= (rz.endMm % totalCircumferenceMm))
+        : (positionMm >= rz.startMm && positionMm <= rz.endMm);
+    }) || null;
+
     setHoverPolar({
       xPx: x,
       yPx: y,
@@ -303,6 +315,7 @@ export function PolarCircumferentialRingMap({
       percentCircumference,
       currentSlot,
       hoveredFlaw,
+      activeRepairZone,
     });
   };
 
@@ -352,6 +365,15 @@ export function PolarCircumferentialRingMap({
                   {hoverPolar.percentCircumference}%
                 </span>
               </div>
+              {hoverPolar.activeRepairZone && (
+                <>
+                  <span className="text-slate-300 shrink-0">|</span>
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold shrink-0 text-[11px]">
+                    <span>🔧 Replaced Zone</span>
+                    <span className="font-mono text-[10px]">({(hoverPolar.activeRepairZone.startMm/1000).toFixed(1)}m–{(hoverPolar.activeRepairZone.endMm/1000).toFixed(1)}m)</span>
+                  </div>
+                </>
+              )}
               {hoverPolar.hoveredFlaw && (
                 <>
                   <span className="text-slate-300 shrink-0">|</span>
@@ -400,6 +422,54 @@ export function PolarCircumferentialRingMap({
             stroke="#7CFC00"
             strokeWidth={wallThicknessPx}
           />
+
+          {/* Replaced / Repaired Weld Sections (Distinct darker green shade #4E9A06 than #7CFC00) */}
+          {repairZones?.filter(rz => !weldName || rz.weldName === "ALL" || weldName.includes(rz.weldName) || rz.weldName.includes(weldName)).map(rz => {
+            const startRad = mmToAngle(rz.startMm).angleRad;
+            const endRad = mmToAngle(rz.endMm).angleRad;
+            const arcPath = describeAnticlockwiseArc(center, center, midRadius, startRad, endRad);
+            
+            // Midpoint for badge / demarcation
+            const midMm = (rz.startMm + rz.endMm) / 2;
+            const midAngle = mmToAngle(midMm);
+            const labelR = outerRadius + 18;
+            const lx = center + labelR * Math.cos(midAngle.angleRad);
+            const ly = center + labelR * Math.sin(midAngle.angleRad);
+
+            // Radial boundary demarcation ticks
+            const t1InnerX = center + (innerRadius - 4) * Math.cos(startRad);
+            const t1InnerY = center + (innerRadius - 4) * Math.sin(startRad);
+            const t1OuterX = center + (outerRadius + 8) * Math.cos(startRad);
+            const t1OuterY = center + (outerRadius + 8) * Math.sin(startRad);
+
+            const t2InnerX = center + (innerRadius - 4) * Math.cos(endRad);
+            const t2InnerY = center + (innerRadius - 4) * Math.sin(endRad);
+            const t2OuterX = center + (outerRadius + 8) * Math.cos(endRad);
+            const t2OuterY = center + (outerRadius + 8) * Math.sin(endRad);
+
+            return (
+              <g key={rz.id} className="repair-zone-polar">
+                {/* Darker shade arc for the replaced steel section */}
+                <path
+                  d={arcPath}
+                  fill="none"
+                  stroke="#4E9A06"
+                  strokeWidth={wallThicknessPx}
+                />
+                {/* Radial boundary demarcation lines */}
+                <line x1={t1InnerX} y1={t1InnerY} x2={t1OuterX} y2={t1OuterY} stroke="#0f172a" strokeWidth="2.5" strokeDasharray="3 2" />
+                <line x1={t2InnerX} y1={t2InnerY} x2={t2OuterX} y2={t2OuterY} stroke="#0f172a" strokeWidth="2.5" strokeDasharray="3 2" />
+
+                {/* Replaced Zone Tag */}
+                <g transform={`translate(${lx}, ${ly})`}>
+                  <rect x="-42" y="-9" width="84" height="18" rx="4" fill="#0f172a" opacity="0.95" stroke="#4E9A06" strokeWidth="1" />
+                  <text x="0" y="3.5" textAnchor="middle" fontSize="8" fontWeight="900" fill="#7CFC00" fontFamily="sans-serif">
+                    🔧 REPLACED
+                  </text>
+                </g>
+              </g>
+            );
+          })}
 
           {/* Outer Vessel Shell Boundary (Solid black line matching Image - OD Surface) */}
           <circle
@@ -809,6 +879,7 @@ export function PolarCircumferentialRingMap({
                           percentCircumference: Number(((pi.circumferentialPosition / totalCircumferenceMm) * 100).toFixed(1)),
                           currentSlot: slotName,
                           hoveredFlaw: pi,
+                          activeRepairZone: (repairZones || []).find(rz => pi.circumferentialPosition >= rz.startMm && pi.circumferentialPosition <= rz.endMm) || null,
                         });
                       }}
                       onMouseLeave={() => setHoverPolar(null)}
@@ -865,6 +936,11 @@ export function PolarCircumferentialRingMap({
           <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
             <span className="w-3.5 h-3.5 rounded-xs inline-block border border-slate-400/40" style={{ backgroundColor: "#7CFC00" }}></span>
             <span className="font-medium">No crack (Sound Wall)</span>
+          </span>
+
+          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-emerald-300 bg-emerald-50/50">
+            <span className="w-3.5 h-3.5 rounded-xs inline-block border border-slate-600/40" style={{ backgroundColor: "#4E9A06" }}></span>
+            <span className="font-bold text-emerald-950">Replaced / Repaired Steel</span>
           </span>
 
           <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">

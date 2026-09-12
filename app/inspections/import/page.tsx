@@ -18,6 +18,8 @@ import {
   VaultDataset, 
   VaultDatasetSummary 
 } from "@/lib/vault/datasetVault";
+import { RepairZone, DisappearedFlawAnomaly } from "@/types/repair";
+import { RepairAnomalyModal } from "@/components/repair/RepairAnomalyModal";
 import { WeldCircumferentialMap } from "@/components/visualization/weldCircumferentialMap";
 import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
 import { WeldWidthPlanPlot } from "@/components/visualization/WeldWidthPlanPlot";
@@ -45,7 +47,8 @@ import {
   Maximize2,
   Crosshair,
   Layers,
-  Trash2
+  Trash2,
+  Wrench
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -75,6 +78,50 @@ export default function ImportWizardPage() {
   const [savedResult, setSavedResult] = useState<any>(null);
   const [vaultDatasets, setVaultDatasets] = useState<VaultDatasetSummary[]>([]);
 
+  // Repair & Replaced Sections State
+  const [repairZones, setRepairZones] = useState<RepairZone[]>([]);
+  const [anomalies, setAnomalies] = useState<DisappearedFlawAnomaly[]>([]);
+  const [showRepairModal, setShowRepairModal] = useState<boolean>(false);
+
+  const checkAndSetAnomalies = (matrix: MatrixParseResult) => {
+    if (!matrix || matrix.campaigns.length < 2) return;
+    const sorted = [...matrix.campaigns].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    const latest = sorted[sorted.length - 1];
+    const found: DisappearedFlawAnomaly[] = [];
+
+    matrix.physicalIndications.forEach((pi) => {
+      const latestVal = pi.campaignValues[latest.key];
+      const hasLatest = latestVal && typeof latestVal.length === "number" && latestVal.length > 0;
+      if (!hasLatest && !pi.hasRepairs) {
+        for (let i = sorted.length - 2; i >= 0; i--) {
+          const prev = sorted[i];
+          const prevVal = pi.campaignValues[prev.key];
+          if (prevVal && typeof prevVal.length === "number" && prevVal.length > 0) {
+            found.push({
+              indicationCode: pi.code,
+              weldName: pi.weldName,
+              drumName: pi.drumName,
+              approximateLocationMm: pi.circumferentialPosition || 0,
+              detectedLengthMm: prevVal.length,
+              lastObservedCampaign: prev.label || prev.key,
+              lastObservedDate: prev.date,
+              missingInCampaign: latest.label || latest.key,
+              suggestedStartMm: Math.max(0, (pi.circumferentialPosition || 0) - 200),
+              suggestedEndMm: (pi.circumferentialPosition || 0) + prevVal.length + 200,
+            });
+            break;
+          }
+        }
+      }
+    });
+    setAnomalies(found);
+    if (found.length > 0) {
+      setShowRepairModal(true);
+    }
+  };
+
   useEffect(() => {
     getDrumsAndWelds()
       .then((data) => {
@@ -101,10 +148,12 @@ export default function ImportWizardPage() {
       const ds = await getDatasetFromVault(id);
       if (ds && ds.matrixResult) {
         setMatrixResult(ds.matrixResult);
+        if (ds.repairZones) setRepairZones(ds.repairZones);
         setSelectedTanks(ds.activeDrum ? [ds.activeDrum] : ["ALL"]);
         setSelectedWelds(ds.activeWeld ? [ds.activeWeld] : ["ALL"]);
         await setActiveVaultDatasetId(id);
         await loadVaultDatasets();
+        checkAndSetAnomalies(ds.matrixResult);
         setStep("PREFERENCES");
       } else {
         setErrorMessage("Dataset not found in Vault.");
@@ -256,6 +305,7 @@ export default function ImportWizardPage() {
           // Default selection to "ALL" tanks and "ALL" welds
           setSelectedTanks(["ALL"]);
           setSelectedWelds(["ALL"]);
+          checkAndSetAnomalies(sheetInfo.matrixResult);
           setStep("PREFERENCES");
         } else {
           // If not matrix, default to matrix representation with raw rows
@@ -369,6 +419,7 @@ export default function ImportWizardPage() {
         matrixResult,
         activeDrum: selectedTanks[0] !== "ALL" ? selectedTanks[0] : matrixResult.availableDrums[0],
         activeWeld: selectedWelds[0] !== "ALL" ? selectedWelds[0] : undefined,
+        repairZones,
       });
 
       await setActiveVaultDatasetId(vaultId);
@@ -748,6 +799,21 @@ export default function ImportWizardPage() {
                 <Layers size={14} />
                 <span>Unrolled 2D Ribbon</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setShowRepairModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
+                title="Manage partial weld replacements and review disappeared flaw anomalies"
+              >
+                <Wrench size={14} className="text-emerald-700" />
+                <span>Repair &amp; Replaced Zones ({repairZones.length})</span>
+                {anomalies.length > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-white animate-pulse">
+                    {anomalies.length} anomaly
+                  </span>
+                )}
+              </button>
             </div>
 
             {/* Quick Flaw Selector */}
@@ -780,6 +846,7 @@ export default function ImportWizardPage() {
               onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
               drumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}
               weldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}
+              repairZones={repairZones}
             />
           )}
 
@@ -788,6 +855,7 @@ export default function ImportWizardPage() {
               indications={filteredIndications}
               selectedFlawCode={activeFlaw?.code}
               onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
+              repairZones={repairZones}
             />
           )}
 
@@ -952,6 +1020,24 @@ export default function ImportWizardPage() {
           </div>
         </div>
       )}
+
+      {/* Repair & Replacement Anomaly Review Modal */}
+      <RepairAnomalyModal
+        isOpen={showRepairModal}
+        onClose={() => setShowRepairModal(false)}
+        anomalies={anomalies}
+        repairZones={repairZones}
+        onAddRepairZone={(zone) => setRepairZones((prev) => [...prev, zone])}
+        onRemoveRepairZone={(id) => setRepairZones((prev) => prev.filter((z) => z.id !== id))}
+        onResolveAnomaly={(anomaly, wasRepaired, zone) => {
+          if (wasRepaired && zone) {
+            setRepairZones((prev) => [...prev, zone]);
+          }
+          setAnomalies((prev) => prev.filter((a) => a.indicationCode !== anomaly.indicationCode));
+        }}
+        currentWeldName={selectedWelds.includes("ALL") ? "C6" : selectedWelds[0]}
+        currentDrumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks[0]}
+      />
     </div>
   );
 }

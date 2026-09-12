@@ -1,4 +1,5 @@
 import { MatrixParseResult } from "@/lib/import/matrixParser";
+import { RepairZone } from "@/types/repair";
 
 export interface VaultDataset {
   id: string;
@@ -11,6 +12,7 @@ export interface VaultDataset {
   matrixResult: MatrixParseResult;
   activeDrum?: string;
   activeWeld?: string;
+  repairZones?: RepairZone[];
 }
 
 export interface VaultDatasetSummary {

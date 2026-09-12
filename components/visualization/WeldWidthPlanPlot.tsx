@@ -2,6 +2,7 @@
 
 import { useState, useRef, useMemo } from "react";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
+import { RepairZone } from "@/types/repair";
 
 interface WeldWidthPlanPlotProps {
   indications: TrackedPhysicalIndication[];
@@ -9,6 +10,7 @@ interface WeldWidthPlanPlotProps {
   onSelectFlaw?: (pi: TrackedPhysicalIndication) => void;
   weldCapHalfWidthMm?: number; // default 3 mm (+3 to -3)
   hazHalfWidthMm?: number; // default 6 mm (+6 to -6)
+  repairZones?: RepairZone[];
 }
 
 interface MiniBevelSScanPreviewProps {
@@ -147,6 +149,7 @@ export function WeldWidthPlanPlot({
   onSelectFlaw,
   weldCapHalfWidthMm = 3,
   hazHalfWidthMm = 6,
+  repairZones = [],
 }: WeldWidthPlanPlotProps) {
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null);
   const [hoverCursor, setHoverCursor] = useState<{
@@ -156,6 +159,7 @@ export function WeldWidthPlanPlot({
     indexOffsetMm: number;
     percentOfWeldWidth: number;
     hoveredFlaw: TrackedPhysicalIndication | null;
+    activeRepairZone: RepairZone | null;
   } | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -303,6 +307,11 @@ export function WeldWidthPlanPlot({
       }
     }
 
+    // Check if hovering within a repaired / replaced zone
+    const activeRepairZone = (repairZones || []).find(
+      (rz) => scanLengthMm >= rz.startMm && scanLengthMm <= rz.endMm
+    ) || null;
+
     setHoverCursor({
       xPx,
       yPx,
@@ -310,6 +319,7 @@ export function WeldWidthPlanPlot({
       indexOffsetMm,
       percentOfWeldWidth,
       hoveredFlaw,
+      activeRepairZone,
     });
   };
 
@@ -364,6 +374,15 @@ export function WeldWidthPlanPlot({
                   {Math.abs(hoverCursor.percentOfWeldWidth)}% to {hoverCursor.indexOffsetMm >= 0 ? "Top" : "Bottom"} Toe
                 </span>
               </div>
+              {hoverCursor.activeRepairZone && (
+                <>
+                  <span className="text-slate-300 shrink-0">|</span>
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold shrink-0 text-[11px]">
+                    <span>🔧 Replaced Zone</span>
+                    <span className="font-mono text-[10px]">({(hoverCursor.activeRepairZone.startMm/1000).toFixed(1)}m–{(hoverCursor.activeRepairZone.endMm/1000).toFixed(1)}m)</span>
+                  </div>
+                </>
+              )}
               {hoverCursor.hoveredFlaw && (
                 <>
                   <span className="text-slate-300 shrink-0">|</span>
@@ -432,6 +451,65 @@ export function WeldWidthPlanPlot({
             stroke="#94a3b8"
             strokeWidth="1.5"
           />
+
+          {/* Replaced / Repaired Sections (Noticeably darker shade than #f8fafc: #e2e8f0) */}
+          {repairZones?.map((rz) => {
+            const x1 = Math.max(margin.left, scaleX(rz.startMm));
+            const x2 = Math.min(margin.left + innerWidth, scaleX(rz.endMm));
+            const zoneWidth = Math.max(0, x2 - x1);
+            if (zoneWidth <= 0) return null;
+            return (
+              <g key={rz.id} className="repair-zone-band">
+                {/* Noticeably darker background shade */}
+                <rect
+                  x={x1}
+                  y={margin.top}
+                  width={zoneWidth}
+                  height={innerHeight}
+                  fill="#e2e8f0"
+                  opacity="0.95"
+                />
+                {/* Boundary demarcation lines */}
+                <line
+                  x1={x1}
+                  y1={margin.top}
+                  x2={x1}
+                  y2={margin.top + innerHeight}
+                  stroke="#334155"
+                  strokeWidth="2"
+                  strokeDasharray="4 3"
+                />
+                <line
+                  x1={x2}
+                  y1={margin.top}
+                  x2={x2}
+                  y2={margin.top + innerHeight}
+                  stroke="#334155"
+                  strokeWidth="2"
+                  strokeDasharray="4 3"
+                />
+                {/* Top Badge */}
+                <rect
+                  x={x1 + 4}
+                  y={margin.top + 4}
+                  width={Math.min(zoneWidth - 8, 175)}
+                  height={18}
+                  rx="4"
+                  fill="#0f172a"
+                  opacity="0.95"
+                />
+                <text
+                  x={x1 + 8}
+                  y={margin.top + 16}
+                  fontSize="9"
+                  fontWeight="bold"
+                  fill="#7CFC00"
+                >
+                  🔧 Replaced ({(rz.startMm / 1000).toFixed(1)}m–{(rz.endMm / 1000).toFixed(1)}m)
+                </text>
+              </g>
+            );
+          })}
 
           {/* Reference Lines across Weld Width */}
           {/* HAZ / Prep Boundaries (+6 mm and -6 mm) */}
@@ -805,6 +883,7 @@ export function WeldWidthPlanPlot({
                         indexOffsetMm: offset,
                         percentOfWeldWidth: Number(((offset / hazHalfWidthMm) * 100).toFixed(1)),
                         hoveredFlaw: pi,
+                        activeRepairZone: (repairZones || []).find(rz => startX >= rz.startMm && startX <= rz.endMm) || null,
                       });
                     }}
                     onMouseLeave={() => setHoverCursor(null)}
@@ -890,6 +969,10 @@ export function WeldWidthPlanPlot({
           <span className="flex items-center gap-1.5">
             <span className="w-4 h-0.5 border-t-2 border-dashed border-slate-500 inline-block"></span>
             <span>HAZ (±6 mm)</span>
+          </span>
+          <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 border border-slate-300 font-bold text-slate-800">
+            <span className="w-2.5 h-2.5 rounded-xs bg-[#e2e8f0] border border-slate-500 inline-block"></span>
+            <span>Replaced / Repaired Steel</span>
           </span>
         </div>
       </div>
