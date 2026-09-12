@@ -152,7 +152,7 @@ export function WeldHistoricalVsCurrentGraph({
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 pb-3 border-b border-slate-100 min-h-[130px] md:min-h-[85px]">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-sky-100 text-sky-800 flex items-center justify-center font-bold text-xs">
             <TrendingUp size={15} />

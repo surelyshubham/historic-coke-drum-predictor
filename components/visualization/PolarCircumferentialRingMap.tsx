@@ -316,7 +316,7 @@ export function PolarCircumferentialRingMap({
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
       {/* Title & Live Readout Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 border-b border-slate-100 pb-3 min-h-[130px] md:min-h-[85px]">
         <div>
           <h3 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <span>360° Circular Circumferential Weld Map</span>
@@ -324,13 +324,13 @@ export function PolarCircumferentialRingMap({
               Anticlockwise Scan • North 0°
             </span>
           </h3>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-500 mt-1">
             Coke Drum <strong>{drumName}</strong> ({weldName}) with 28 longitudinal slots (L1–L28) and depth-proportional indications on {nominalWallThickness.toFixed(1)} mm wall
           </p>
         </div>
 
-        {/* Live Coordinate Readout Ribbon */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs h-9 min-h-[36px] max-h-[36px] overflow-hidden whitespace-nowrap">
+        {/* Live Coordinate Readout Ribbon (Wrap allowed, parent height prevents shifting) */}
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs min-h-[36px]">
           {hoverPolar ? (
             <>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -339,7 +339,7 @@ export function PolarCircumferentialRingMap({
                   {hoverPolar.currentSlot}
                 </span>
               </div>
-              <span className="text-slate-300 shrink-0">|</span>
+              <span className="text-slate-300 shrink-0 hidden sm:inline">|</span>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Angle θ:</span>
                 <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}°</span>

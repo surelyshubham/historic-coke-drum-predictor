@@ -209,7 +209,7 @@ export function PredictiveForecastChart({
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
       {/* Top Header of Chart */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 pb-3 border-b border-slate-100 min-h-[130px] md:min-h-[85px]">
         <div>
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-900 text-base">Growth & Predictive Forecast: {flawCode}</span>

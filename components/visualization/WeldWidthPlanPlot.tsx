@@ -336,25 +336,25 @@ export function WeldWidthPlanPlot({
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
       {/* Title matching engineering standard */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 border-b border-slate-100 pb-3 min-h-[130px] md:min-h-[85px]">
         <div>
           <h3 className="text-sm font-bold text-amber-950 tracking-tight">
             Weld Width with Indications Plot (Index Offset vs Scan Length)
           </h3>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-500 mt-1">
             Top-down plan projection relative to weld centerline (0 mm), weld cap (±3 mm), and HAZ (±6 mm)
           </p>
         </div>
 
-        {/* Live Coordinate Readout HUD Ribbon (Always unobscured above the plot) */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs h-9 min-h-[36px] max-h-[36px] overflow-hidden whitespace-nowrap">
+        {/* Live Coordinate Readout HUD Ribbon (Wrap allowed, parent height prevents shifting) */}
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs min-h-[36px]">
           {hoverCursor ? (
             <>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Scan:</span>
                 <span className="font-mono font-bold text-slate-900">{hoverCursor.scanLengthMm} mm</span>
               </div>
-              <span className="text-slate-300 shrink-0">|</span>
+              <span className="text-slate-300 shrink-0 hidden sm:inline">|</span>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Offset:</span>
                 <span className="font-mono font-bold text-sky-700">
