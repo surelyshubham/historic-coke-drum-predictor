@@ -1427,7 +1427,7 @@ export default function ReportsPage() {
                     <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                       <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
-                        2.{weldIdx + 1}.1 360° Circumferential Polar Ring Map — Seam {weldName}
+                        2.{weldIdx + 1}.1 360° Circumferential Map — Seam {weldName}
                       </h5>
                       <span className="text-[11px] text-slate-500">North 0° • Slots L1–L28 • Side-by-Side Defect Table</span>
                     </div>

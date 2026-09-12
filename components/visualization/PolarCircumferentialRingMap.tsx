@@ -319,7 +319,7 @@ export function PolarCircumferentialRingMap({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
           <h3 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>360° Circular Circumferential Weld Map (Polar Ring View)</span>
+            <span>360° Circular Circumferential Weld Map</span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800 uppercase tracking-wide">
               Anticlockwise Scan • North 0°
             </span>

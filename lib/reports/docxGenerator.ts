@@ -492,7 +492,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
                     spacing: { after: 160 },
                     children: [
                       new TextRun({
-                        text: `Figure 4.${wIdx + 1}.1: 360° Circumferential Polar Ring Map — Seam ${wName} (~${circumferenceM} m Perimeter, Slots L1–L28)`,
+                        text: `Figure 4.${wIdx + 1}.1: 360° Circumferential Map — Seam ${wName} (~${circumferenceM} m Perimeter, Slots L1–L28)`,
                         italics: true,
                         bold: true,
                         size: 16,

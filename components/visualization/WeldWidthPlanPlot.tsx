@@ -342,7 +342,7 @@ export function WeldWidthPlanPlot({
             Weld Width with Indications Plot (Index Offset vs Scan Length)
           </h3>
           <p className="text-[11px] text-slate-500">
-            Top-down C-Scan plan projection relative to weld centerline (0 mm), weld cap (±3 mm), and HAZ (±6 mm)
+            Top-down plan projection relative to weld centerline (0 mm), weld cap (±3 mm), and HAZ (±6 mm)
           </p>
         </div>
 
