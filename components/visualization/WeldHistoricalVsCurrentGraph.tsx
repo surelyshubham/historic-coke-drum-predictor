@@ -22,6 +22,7 @@ export function WeldHistoricalVsCurrentGraph({
   onSelectFlaw,
 }: WeldHistoricalVsCurrentGraphProps) {
   const [metricMode, setMetricMode] = useState<"DEPTH" | "LENGTH" | "DELTA">("DEPTH");
+  const [surfaceFilter, setSurfaceFilter] = useState<"ALL" | "OD" | "ID">("ALL");
   const [hoveredFlawCode, setHoveredFlawCode] = useState<string | null>(null);
 
   // Filter flaws that belong to this weld or have valid measurements
@@ -31,13 +32,39 @@ export function WeldHistoricalVsCurrentGraph({
     );
   }, [indications]);
 
+  // Helper to determine surface location (OD, ID, or BOTH)
+  const getIndicationSurface = (ind: ReportIndicationItem): "ID" | "OD" | "BOTH" => {
+    const hasId = typeof ind.currentDepthId === "number" && ind.currentDepthId > 0;
+    const hasOd = typeof ind.currentDepthOd === "number" && ind.currentDepthOd > 0;
+    if (hasId && hasOd) return "BOTH";
+    if (hasId) return "ID";
+    if (hasOd) return "OD";
+
+    const text = `${ind.weldPosition || ""} ${ind.segment || ""} ${ind.toeType || ""} ${ind.code || ""}`.toUpperCase();
+    if (text.includes("OD") || text.includes("TT") || text.includes("TOP")) return "OD";
+    if (text.includes("ID") || text.includes("BT") || text.includes("BOTTOM")) return "ID";
+
+    return "ID";
+  };
+
+  // Filter indications based on selected surface filter (ALL / OD / ID)
+  const filteredIndications = useMemo(() => {
+    if (surfaceFilter === "ALL") return validIndications;
+    return validIndications.filter((ind) => {
+      const surface = getIndicationSurface(ind);
+      if (surfaceFilter === "OD") return surface === "OD" || surface === "BOTH";
+      if (surfaceFilter === "ID") return surface === "ID" || surface === "BOTH";
+      return true;
+    });
+  }, [validIndications, surfaceFilter]);
+
   // Determine earliest campaign name (baseline) and latest campaign name (current)
   const baselineCampaign = campaignNames.length > 0 ? campaignNames[0] : "Baseline";
   const currentCampaign = campaignNames.length > 0 ? campaignNames[campaignNames.length - 1] : "Current";
 
   // Compute stats across indications for this weld
   const stats = useMemo(() => {
-    if (validIndications.length === 0) {
+    if (filteredIndications.length === 0) {
       return { maxDelta: 0, avgRate: 0, progressedCount: 0 };
     }
 
@@ -45,7 +72,7 @@ export function WeldHistoricalVsCurrentGraph({
     let sumRate = 0;
     let progressedCount = 0;
 
-    validIndications.forEach((ind) => {
+    filteredIndications.forEach((ind) => {
       const hist = ind.campaignHistory || [];
       if (hist.length > 1) {
         const first = hist[0];
@@ -57,9 +84,9 @@ export function WeldHistoricalVsCurrentGraph({
       sumRate += ind.growthRateYear || 0;
     });
 
-    const avgRate = Number((sumRate / validIndications.length).toFixed(2));
+    const avgRate = Number((sumRate / filteredIndications.length).toFixed(2));
     return { maxDelta: Number(maxDelta.toFixed(2)), avgRate, progressedCount };
-  }, [validIndications]);
+  }, [filteredIndications]);
 
   // SVG dimensions & scaling
   const chartConfig = useMemo(() => {
@@ -69,24 +96,24 @@ export function WeldHistoricalVsCurrentGraph({
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
 
-    if (validIndications.length === 0) {
+    if (filteredIndications.length === 0) {
       return { width, height, margin, innerWidth, innerHeight, maxVal: 40, barGroupWidth: 40 };
     }
 
     let maxVal = 20;
     if (metricMode === "DEPTH") {
       const maxD = Math.max(
-        ...validIndications.map((i) => i.currentDepth),
+        ...filteredIndications.map((i) => i.currentDepth),
         nominalWallThickness * 0.8
       );
       maxVal = Math.max(nominalWallThickness, maxD * 1.15);
     } else if (metricMode === "LENGTH") {
-      const maxL = Math.max(...validIndications.map((i) => i.currentLength), 50);
+      const maxL = Math.max(...filteredIndications.map((i) => i.currentLength), 50);
       maxVal = maxL * 1.15;
     } else {
       // DELTA
       const maxDelta = Math.max(
-        ...validIndications.map((i) => {
+        ...filteredIndications.map((i) => {
           const hist = i.campaignHistory || [];
           if (hist.length < 2) return i.currentDepth * 0.2;
           return Math.max(0.5, hist[hist.length - 1].depth - hist[0].depth);
@@ -96,10 +123,10 @@ export function WeldHistoricalVsCurrentGraph({
       maxVal = maxDelta * 1.25;
     }
 
-    const barGroupWidth = innerWidth / validIndications.length;
+    const barGroupWidth = innerWidth / filteredIndications.length;
 
     return { width, height, margin, innerWidth, innerHeight, maxVal, barGroupWidth };
-  }, [validIndications, metricMode, nominalWallThickness]);
+  }, [filteredIndications, metricMode, nominalWallThickness]);
 
   const getY = (val: number) => {
     const clamped = Math.max(0, val);
@@ -140,8 +167,43 @@ export function WeldHistoricalVsCurrentGraph({
           </div>
         </div>
 
-        {/* Metric Toggles */}
-        <div className="flex items-center gap-2">
+        {/* Filter Controls: Surface & Metric Toggles */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Surface Location Filter (ALL / OD / ID) */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+            <button
+              onClick={() => setSurfaceFilter("ALL")}
+              className={`px-2.5 py-1 font-semibold rounded-md transition ${
+                surfaceFilter === "ALL"
+                  ? "bg-white text-sky-800 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              ALL
+            </button>
+            <button
+              onClick={() => setSurfaceFilter("OD")}
+              className={`px-2.5 py-1 font-semibold rounded-md transition ${
+                surfaceFilter === "OD"
+                  ? "bg-white text-sky-800 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              OD
+            </button>
+            <button
+              onClick={() => setSurfaceFilter("ID")}
+              className={`px-2.5 py-1 font-semibold rounded-md transition ${
+                surfaceFilter === "ID"
+                  ? "bg-white text-sky-800 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              ID
+            </button>
+          </div>
+
+          {/* Metric Toggles */}
           <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
             <button
               onClick={() => setMetricMode("DEPTH")}
@@ -254,7 +316,7 @@ export function WeldHistoricalVsCurrentGraph({
           )}
 
           {/* Render Flaw Bar Groups */}
-          {validIndications.map((ind, idx) => {
+          {filteredIndications.map((ind, idx) => {
             const groupX = chartConfig.margin.left + idx * chartConfig.barGroupWidth;
             const centerX = groupX + chartConfig.barGroupWidth / 2;
             const isSelected = ind.code === selectedFlawCode;

@@ -35,7 +35,7 @@ function PolarDefectBadge({
   defectNum,
 }: PolarDefectBadgeProps) {
   const isOdFlaw = surface === "OD";
-  const numRadius = isOdFlaw ? outerRadius + 14 : innerRadius - 14;
+  const numRadius = isOdFlaw ? outerRadius + 18 : innerRadius - 28;
   const nx = center + numRadius * Math.cos(midRad);
   const ny = center + numRadius * Math.sin(midRad);
 
@@ -93,7 +93,7 @@ export function PolarCircumferentialRingMap({
   const innerRadius = 188; // ID surface (green boundary)
   const wallThicknessPx = outerRadius - innerRadius; // 42 px = nominalWallThickness (32.0 mm)
   const midRadius = (outerRadius + innerRadius) / 2;
-  const slotLabelRadius = 168; // Inside the inner circle
+  const slotLabelRadius = 172; // Inside the inner circle
 
   // 28 Longitudinal Slots (L1 to L28) around the full 360° circumference
   const TOTAL_SLOTS = 28;
@@ -330,22 +330,22 @@ export function PolarCircumferentialRingMap({
         </div>
 
         {/* Live Coordinate Readout Ribbon */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs h-9 min-h-[36px] max-h-[36px] overflow-hidden whitespace-nowrap">
           {hoverPolar ? (
             <>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Slot:</span>
                 <span className="font-mono font-extrabold text-sky-700 bg-sky-100/70 px-1.5 py-0.5 rounded">
                   {hoverPolar.currentSlot}
                 </span>
               </div>
-              <span className="text-slate-300">|</span>
-              <div className="flex items-center gap-1.5">
+              <span className="text-slate-300 shrink-0">|</span>
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Angle θ:</span>
                 <span className="font-mono font-bold text-slate-900">{hoverPolar.angleDeg}°</span>
               </div>
-              <span className="text-slate-300">|</span>
-              <div className="flex items-center gap-1.5">
+              <span className="text-slate-300 shrink-0">|</span>
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Pos:</span>
                 <span className="font-mono font-bold text-sky-800">{hoverPolar.positionMeters} m</span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 font-semibold">
@@ -354,8 +354,8 @@ export function PolarCircumferentialRingMap({
               </div>
               {hoverPolar.hoveredFlaw && (
                 <>
-                  <span className="text-slate-300">|</span>
-                  <div className="flex items-center gap-1.5 font-semibold">
+                  <span className="text-slate-300 shrink-0">|</span>
+                  <div className="flex items-center gap-1.5 font-semibold shrink-0">
                     <span className="text-slate-900">🎯 {hoverPolar.hoveredFlaw.code}</span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
                       getFlawSurface(hoverPolar.hoveredFlaw) === "OD"
@@ -374,7 +374,7 @@ export function PolarCircumferentialRingMap({
               )}
             </>
           ) : (
-            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
+            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5 shrink-0">
               <span>🎯 Move cursor around the ring perimeter to inspect radial coordinates &amp; slots</span>
             </span>
           )}
@@ -386,18 +386,18 @@ export function PolarCircumferentialRingMap({
         <div className="lg:col-span-7 relative flex justify-center items-center py-2">
           <svg
             ref={svgRef}
-            viewBox={`0 0 ${size} ${size}`}
+            viewBox={`-20 -25 ${size + 40} ${size + 40}`}
             className="w-full max-w-[560px] h-auto select-none cursor-crosshair overflow-visible"
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
           >
-          {/* Solid Green Annular Vessel Shell Wall ("Green: No crack" matching Client Reference Drawing) */}
+          {/* Solid Light Green Annular Vessel Shell Wall ("Green: No crack" matching Client Reference Drawing - #7CFC00) */}
           <circle
             cx={center}
             cy={center}
             r={midRadius}
             fill="none"
-            stroke="#16a34a"
+            stroke="#7CFC00"
             strokeWidth={wallThicknessPx}
           />
 
@@ -863,7 +863,7 @@ export function PolarCircumferentialRingMap({
           <span className="font-bold text-slate-900">Depth Legend:</span>
 
           <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-            <span className="w-3.5 h-3.5 bg-green-600 rounded-xs inline-block"></span>
+            <span className="w-3.5 h-3.5 rounded-xs inline-block border border-slate-400/40" style={{ backgroundColor: "#7CFC00" }}></span>
             <span className="font-medium">No crack (Sound Wall)</span>
           </span>
 

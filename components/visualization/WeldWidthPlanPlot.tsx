@@ -347,15 +347,15 @@ export function WeldWidthPlanPlot({
         </div>
 
         {/* Live Coordinate Readout HUD Ribbon (Always unobscured above the plot) */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs h-9 min-h-[36px] max-h-[36px] overflow-hidden whitespace-nowrap">
           {hoverCursor ? (
             <>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Scan:</span>
                 <span className="font-mono font-bold text-slate-900">{hoverCursor.scanLengthMm} mm</span>
               </div>
-              <span className="text-slate-300">|</span>
-              <div className="flex items-center gap-1.5">
+              <span className="text-slate-300 shrink-0">|</span>
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-slate-400 font-medium">Offset:</span>
                 <span className="font-mono font-bold text-sky-700">
                   {hoverCursor.indexOffsetMm > 0 ? `+${hoverCursor.indexOffsetMm}` : hoverCursor.indexOffsetMm} mm
@@ -366,8 +366,8 @@ export function WeldWidthPlanPlot({
               </div>
               {hoverCursor.hoveredFlaw && (
                 <>
-                  <span className="text-slate-300">|</span>
-                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
+                  <span className="text-slate-300 shrink-0">|</span>
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold shrink-0">
                     <span>🎯 {hoverCursor.hoveredFlaw.code}</span>
                     <span className="font-mono text-[11px]">({hoverCursor.hoveredFlaw.latestLength}mm)</span>
                   </div>
@@ -375,7 +375,7 @@ export function WeldWidthPlanPlot({
               )}
             </>
           ) : (
-            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5">
+            <span className="text-slate-400 italic text-[11px] flex items-center gap-1.5 shrink-0">
               <span>🎯 Move cursor across weld to inspect coordinates and defect geometry</span>
             </span>
           )}
@@ -631,25 +631,25 @@ export function WeldWidthPlanPlot({
                     x={midX}
                     y={offset >= 0 ? yTop - 4 : yTop + streakThickness + 11}
                     textAnchor="middle"
-                    fontSize="9.5"
+                    fontSize="10"
                     fontWeight="800"
                     fill="#ffffff"
                     stroke="#ffffff"
                     strokeWidth="3.5"
                     fontFamily="sans-serif"
                   >
-                    #{defectNum} ({flawCodeLabel})
+                    #{defectNum}
                   </text>
                   <text
                     x={midX}
                     y={offset >= 0 ? yTop - 4 : yTop + streakThickness + 11}
                     textAnchor="middle"
-                    fontSize="9.5"
+                    fontSize="10"
                     fontWeight="800"
                     fill={depthGrade.darkColor}
                     fontFamily="sans-serif"
                   >
-                    #{defectNum} ({flawCodeLabel})
+                    #{defectNum}
                   </text>
                 </g>
               </g>
