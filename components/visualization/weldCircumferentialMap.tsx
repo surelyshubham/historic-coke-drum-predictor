@@ -76,7 +76,7 @@ export function WeldCircumferentialMap({
         <div>
           <div className="flex items-center space-x-2">
             <span className="text-xs font-bold px-2 py-0.5 bg-sky-100 text-sky-800 rounded">
-              Tank: {activeDrumName}
+              Coke Drum: {activeDrumName}
             </span>
             <span className="text-xs font-bold px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded">
               Weld Joint: {activeWeldName}
@@ -257,7 +257,7 @@ export function WeldCircumferentialMap({
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
             <div className="bg-white p-3 rounded-lg border border-sky-100">
-              <p className="text-slate-500 font-medium">Tank & Weld Joint</p>
+              <p className="text-slate-500 font-medium">Coke Drum &amp; Weld Joint</p>
               <p className="text-sm font-bold text-slate-800 mt-0.5">{selectedPi.drumName} — Joint {selectedPi.weldName}</p>
             </div>
             <div className="bg-white p-3 rounded-lg border border-sky-100">

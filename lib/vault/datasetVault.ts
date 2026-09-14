@@ -13,6 +13,7 @@ export interface VaultDataset {
   activeDrum?: string;
   activeWeld?: string;
   repairZones?: RepairZone[];
+  jointAliases?: Record<string, string>;
 }
 
 export interface VaultDatasetSummary {

@@ -20,6 +20,7 @@ import {
 } from "@/lib/vault/datasetVault";
 import { RepairZone, DisappearedFlawAnomaly } from "@/types/repair";
 import { RepairAnomalyModal } from "@/components/repair/RepairAnomalyModal";
+import { RenameJointModal } from "@/components/repair/RenameJointModal";
 import { WeldCircumferentialMap } from "@/components/visualization/weldCircumferentialMap";
 import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
 import { WeldWidthPlanPlot } from "@/components/visualization/WeldWidthPlanPlot";
@@ -48,7 +49,8 @@ import {
   Crosshair,
   Layers,
   Trash2,
-  Wrench
+  Wrench,
+  Pencil
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -66,11 +68,22 @@ export default function ImportWizardPage() {
   // Multi-Campaign Matrix State
   const [matrixResult, setMatrixResult] = useState<MatrixParseResult | null>(null);
 
-  // Tank & Weld Selection Preferences
-  const [selectedTanks, setSelectedTanks] = useState<string[]>([]); // ["ALL"] or ["R01", "R02", ...]
+  // Coke Drum & Weld Selection Preferences
+  const [selectedDrums, setSelectedDrums] = useState<string[]>([]); // ["ALL"] or ["R01", "R02", ...]
   const [selectedWelds, setSelectedWelds] = useState<string[]>([]); // ["ALL"] or ["C6", ...]
   const [selectedCampaign, setSelectedCampaign] = useState<string>("ALL"); // "ALL" or specific campaign key
   const [visualizerTab, setVisualizerTab] = useState<"POLAR_RING" | "WELD_WIDTH" | "BEVEL_SLICE" | "GROWTH_CURVE" | "UNROLLED_RIBBON">("POLAR_RING");
+  const [layoutMode, setLayoutMode] = useState<"SPLIT" | "CANVAS_ONLY" | "TABLE_ONLY">("SPLIT");
+
+  // Custom Joint Display Names
+  const [jointAliases, setJointAliases] = useState<Record<string, string>>({});
+  const [showRenameModal, setShowRenameModal] = useState<boolean>(false);
+
+  const getJointDisplayName = (weldKey: string) => {
+    if (!weldKey) return "";
+    if (weldKey === "ALL") return "All Welds";
+    return jointAliases[weldKey] || `Joint ${weldKey}`;
+  };
 
   // Loading & Action states
   const [loading, setLoading] = useState(false);
@@ -149,7 +162,8 @@ export default function ImportWizardPage() {
       if (ds && ds.matrixResult) {
         setMatrixResult(ds.matrixResult);
         if (ds.repairZones) setRepairZones(ds.repairZones);
-        setSelectedTanks(ds.activeDrum ? [ds.activeDrum] : ["ALL"]);
+        if (ds.jointAliases) setJointAliases(ds.jointAliases);
+        setSelectedDrums(ds.activeDrum ? [ds.activeDrum] : ["ALL"]);
         setSelectedWelds(ds.activeWeld ? [ds.activeWeld] : ["ALL"]);
         await setActiveVaultDatasetId(id);
         await loadVaultDatasets();
@@ -302,8 +316,8 @@ export default function ImportWizardPage() {
 
         if (sheetInfo.isMatrixFormat && sheetInfo.matrixResult) {
           setMatrixResult(sheetInfo.matrixResult);
-          // Default selection to "ALL" tanks and "ALL" welds
-          setSelectedTanks(["ALL"]);
+          // Default selection to "ALL" coke drums and "ALL" welds
+          setSelectedDrums(["ALL"]);
           setSelectedWelds(["ALL"]);
           checkAndSetAnomalies(sheetInfo.matrixResult);
           setStep("PREFERENCES");
@@ -319,20 +333,20 @@ export default function ImportWizardPage() {
     }
   };
 
-  // Toggle Tank selection
-  const handleToggleTank = (tank: string) => {
-    if (tank === "ALL") {
-      setSelectedTanks(["ALL"]);
+  // Toggle Coke Drum selection
+  const handleToggleDrum = (drum: string) => {
+    if (drum === "ALL") {
+      setSelectedDrums(["ALL"]);
       return;
     }
-    let updated = selectedTanks.filter(t => t !== "ALL");
-    if (updated.includes(tank)) {
-      updated = updated.filter(t => t !== tank);
+    let updated = selectedDrums.filter(t => t !== "ALL");
+    if (updated.includes(drum)) {
+      updated = updated.filter(t => t !== drum);
       if (updated.length === 0) updated = ["ALL"];
     } else {
-      updated.push(tank);
+      updated.push(drum);
     }
-    setSelectedTanks(updated);
+    setSelectedDrums(updated);
   };
 
   // Toggle Weld selection
@@ -351,11 +365,11 @@ export default function ImportWizardPage() {
     setSelectedWelds(updated);
   };
 
-  // Filter physical indications by selected Tanks and Welds
+  // Filter physical indications by selected Coke Drums and Welds
   const filteredIndications = (matrixResult?.physicalIndications || []).filter(pi => {
-    const tankMatch = selectedTanks.includes("ALL") || selectedTanks.includes(pi.drumName);
+    const drumMatch = selectedDrums.includes("ALL") || selectedDrums.includes(pi.drumName);
     const weldMatch = selectedWelds.includes("ALL") || selectedWelds.includes(pi.weldName);
-    return tankMatch && weldMatch;
+    return drumMatch && weldMatch;
   });
 
   const [selectedFlawForForecast, setSelectedFlawForForecast] = useState<TrackedPhysicalIndication | null>(null);
@@ -392,10 +406,10 @@ export default function ImportWizardPage() {
     return ms;
   };
 
-  // Available welds for selected tanks
-  const availableWeldsForSelectedTanks = matrixResult ? Array.from(new Set(
+  // Available welds for selected Coke Drums
+  const availableWeldsForSelectedDrums = matrixResult ? Array.from(new Set(
     matrixResult.physicalIndications
-      .filter(pi => selectedTanks.includes("ALL") || selectedTanks.includes(pi.drumName))
+      .filter(pi => selectedDrums.includes("ALL") || selectedDrums.includes(pi.drumName))
       .map(pi => pi.weldName)
   )).sort() : [];
 
@@ -417,9 +431,10 @@ export default function ImportWizardPage() {
         campaigns: matrixResult.campaigns.map((c) => ({ key: c.key, label: c.label, date: c.date })),
         totalIndications: matrixResult.physicalIndications.length,
         matrixResult,
-        activeDrum: selectedTanks[0] !== "ALL" ? selectedTanks[0] : matrixResult.availableDrums[0],
+        activeDrum: selectedDrums[0] !== "ALL" ? selectedDrums[0] : matrixResult.availableDrums[0],
         activeWeld: selectedWelds[0] !== "ALL" ? selectedWelds[0] : undefined,
         repairZones,
+        jointAliases,
       });
 
       await setActiveVaultDatasetId(vaultId);
@@ -445,7 +460,7 @@ export default function ImportWizardPage() {
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Coke Drum PAUT Historical Inspection Platform</h2>
-          <p className="text-sm text-slate-500">Upload Excel, select Tank(s) & Weld(s), and explore interactive 2D circumferential defect visualization</p>
+          <p className="text-sm text-slate-500">Upload Excel, select Coke Drum(s) & Weld Joint(s), and explore interactive 2D circumferential defect visualization</p>
         </div>
 
         {step !== "UPLOAD" && (
@@ -489,7 +504,7 @@ export default function ImportWizardPage() {
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-700">Choose your PAUT inspection workbook (.xlsx, .xls, .csv)</p>
-              <p className="text-xs text-slate-400 mt-1">The system will automatically detect tanks, welds, and historical campaigns</p>
+              <p className="text-xs text-slate-400 mt-1">The system will automatically detect coke drums, weld joints, and historical campaigns</p>
             </div>
             <input 
               type="file" 
@@ -567,40 +582,42 @@ export default function ImportWizardPage() {
         </div>
       )}
 
-      {/* STEP 2: TANK & WELD PREFERENCES CENTER */}
+      {/* STEP 2: COKE DRUM & WELD PREFERENCES CENTER */}
       {step === "PREFERENCES" && matrixResult && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-7 shadow-sm space-y-7">
           <div className="border-b border-slate-100 pb-4">
             <span className="text-xs font-bold px-2.5 py-1 bg-sky-100 text-sky-800 rounded-full uppercase tracking-wider">
               Step 2 of 3
             </span>
-            <h3 className="text-xl font-bold text-slate-900 mt-2">Which Tank & Weld do you want to analyze?</h3>
+            <h3 className="text-xl font-bold text-slate-900 mt-2">Which Coke Drum & Weld Joint do you want to analyze?</h3>
             <p className="text-xs text-slate-500 mt-1">
-              Detected <strong>{matrixResult.availableDrums.length} Tanks</strong> and <strong>{matrixResult.availableWelds.length} Welds</strong> across <strong>{matrixResult.campaigns.length} Inspection Campaigns</strong>.
+              Detected <strong>{matrixResult.availableDrums.length} Coke Drums</strong> and <strong>{matrixResult.availableWelds.length} Weld Joints</strong> across <strong>{matrixResult.campaigns.length} Inspection Campaigns</strong>.
             </p>
           </div>
 
-          {/* 1. Tank / Coke Drum Selector */}
+          {/* 1. Coke Drum Selector */}
           <div className="space-y-3">
             <label className="block text-sm font-bold text-slate-800">
-              1. Select Tank(s) / Coke Drum(s):
+              1. Select Coke Drum(s):
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2.5">
               <button
-                onClick={() => handleToggleTank("ALL")}
-                className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${selectedTanks.includes("ALL") ? "bg-sky-600 text-white border-sky-600 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}
+                type="button"
+                onClick={() => handleToggleDrum("ALL")}
+                className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${selectedDrums.includes("ALL") ? "bg-sky-600 text-white border-sky-600 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}
               >
-                All Tanks ({matrixResult.availableDrums.length})
+                All Coke Drums ({matrixResult.availableDrums.length})
               </button>
               {matrixResult.availableDrums.map((drum) => {
-                const isSelected = selectedTanks.includes(drum);
+                const isSelected = selectedDrums.includes(drum);
                 return (
                   <button
                     key={drum}
-                    onClick={() => handleToggleTank(drum)}
+                    type="button"
+                    onClick={() => handleToggleDrum(drum)}
                     className={`px-4 py-2 rounded-lg text-xs font-semibold border transition-all ${isSelected ? "bg-sky-600 text-white border-sky-600 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}
                   >
-                    Tank {drum}
+                    Coke Drum {drum}
                   </button>
                 );
               })}
@@ -609,25 +626,42 @@ export default function ImportWizardPage() {
 
           {/* 2. Weld / Joint Selector */}
           <div className="space-y-3">
-            <label className="block text-sm font-bold text-slate-800">
-              2. Select Weld Joint(s):
-            </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-bold text-slate-800">
+                2. Select Weld Joint(s):
+              </label>
               <button
+                type="button"
+                onClick={() => setShowRenameModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors cursor-pointer"
+                title="Customize or rename weld joint labels (e.g. C1, C2, C9)"
+              >
+                <Pencil size={13} />
+                <span>Customize Joint Names</span>
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2.5">
+              <button
+                type="button"
                 onClick={() => handleToggleWeld("ALL")}
                 className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${selectedWelds.includes("ALL") ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}
               >
-                All Welds ({availableWeldsForSelectedTanks.length})
+                All Welds ({availableWeldsForSelectedDrums.length})
               </button>
-              {availableWeldsForSelectedTanks.map((weld) => {
+              {availableWeldsForSelectedDrums.map((weld) => {
                 const isSelected = selectedWelds.includes(weld);
+                const displayName = getJointDisplayName(weld);
                 return (
                   <button
                     key={weld}
+                    type="button"
                     onClick={() => handleToggleWeld(weld)}
-                    className={`px-4 py-2 rounded-lg text-xs font-semibold border transition-all ${isSelected ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}
+                    className={`px-4 py-2 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${isSelected ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}
                   >
-                    Weld Joint {weld}
+                    <span>{displayName}</span>
+                    {jointAliases[weld] && (
+                      <span className="text-[10px] opacity-75 font-mono">({weld})</span>
+                    )}
                   </button>
                 );
               })}
@@ -639,7 +673,7 @@ export default function ImportWizardPage() {
             <div className="space-y-1">
               <p className="text-sky-900 font-bold">Current Target Scope:</p>
               <p className="text-sky-800">
-                Tanks: <strong>{selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}</strong> | Welds: <strong>{selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}</strong>
+                Coke Drums: <strong>{selectedDrums.includes("ALL") ? "All Coke Drums" : selectedDrums.map(d => `Coke Drum ${d}`).join(", ")}</strong> | Weld Joints: <strong>{selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.map(w => getJointDisplayName(w)).join(", ")}</strong>
               </p>
             </div>
             <div className="text-right">
@@ -670,66 +704,78 @@ export default function ImportWizardPage() {
       {/* STEP 3: VISUALISATION & HISTORICAL ANALYSIS VIEW */}
       {step === "VISUALIZATION" && matrixResult && (
         <div className="space-y-6">
-          {/* Quick Filters Bar on Top of Visualizer */}
+          {/* Row 1: Command & Scope Bar */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
-            {/* Quick Tank switcher */}
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-slate-600">Tank:</span>
-              <select
-                value={selectedTanks[0] || "ALL"}
-                onChange={(e) => setSelectedTanks([e.target.value])}
-                className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-sky-800 bg-sky-50 focus:ring-1 focus:ring-sky-500 focus:outline-none"
-              >
-                <option value="ALL">All Tanks</option>
-                {matrixResult.availableDrums.map(d => (
-                  <option key={d} value={d}>Tank {d}</option>
-                ))}
-              </select>
+            {/* Left: Scope filters */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Coke Drum selector */}
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+                <span className="text-xs font-bold text-slate-600">Coke Drum:</span>
+                <select
+                  value={selectedDrums[0] || "ALL"}
+                  onChange={(e) => setSelectedDrums([e.target.value])}
+                  className="border border-slate-300 rounded px-2 py-0.5 text-xs font-bold text-sky-800 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                >
+                  <option value="ALL">All Coke Drums</option>
+                  {matrixResult.availableDrums.map(d => (
+                    <option key={d} value={d}>Coke Drum {d}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Weld Joint selector + Rename Pencil */}
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+                <span className="text-xs font-bold text-slate-600">Weld Joint:</span>
+                <select
+                  value={selectedWelds[0] || "ALL"}
+                  onChange={(e) => setSelectedWelds([e.target.value])}
+                  className="border border-slate-300 rounded px-2 py-0.5 text-xs font-bold text-indigo-800 bg-white max-w-[190px] truncate focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                >
+                  <option value="ALL">All Welds</option>
+                  {availableWeldsForSelectedDrums.map(w => (
+                    <option key={w} value={w}>{getJointDisplayName(w)}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowRenameModal(true)}
+                  className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors cursor-pointer"
+                  title="Customize or rename weld joint labels (e.g. C1, C2, C9)"
+                >
+                  <Pencil size={13} />
+                </button>
+              </div>
+
+              {/* Campaign scrubber */}
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+                <span className="text-xs font-bold text-slate-600">Campaign Timeline:</span>
+                <select
+                  value={selectedCampaign}
+                  onChange={(e) => setSelectedCampaign(e.target.value)}
+                  className="border border-slate-300 rounded px-2 py-0.5 text-xs font-semibold text-slate-700 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                >
+                  <option value="ALL">All Campaigns (Latest)</option>
+                  {matrixResult.campaigns.map(c => (
+                    <option key={c.key} value={c.key}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            {/* Quick Weld switcher */}
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-slate-600">Weld Joint:</span>
-              <select
-                value={selectedWelds[0] || "ALL"}
-                onChange={(e) => setSelectedWelds([e.target.value])}
-                className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-indigo-800 bg-indigo-50 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-              >
-                <option value="ALL">All Welds</option>
-                {availableWeldsForSelectedTanks.map(w => (
-                  <option key={w} value={w}>Joint {w}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Campaign scrubber */}
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-slate-600">Campaign Timeline:</span>
-              <select
-                value={selectedCampaign}
-                onChange={(e) => setSelectedCampaign(e.target.value)}
-                className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-50 focus:ring-1 focus:ring-sky-500 focus:outline-none"
-              >
-                <option value="ALL">All Campaigns (Latest)</option>
-                {matrixResult.campaigns.map(c => (
-                  <option key={c.key} value={c.key}>{c.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-2 ml-auto">
+            {/* Right: Actions */}
+            <div className="flex items-center gap-2.5 ml-auto">
               <Link
                 href="/prediction"
-                className="flex items-center space-x-1.5 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors"
+                className="flex items-center space-x-1.5 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors shadow-xs"
               >
                 <TrendingUp size={14} />
                 <span>Full Predictive Platform</span>
               </Link>
               <button
+                type="button"
                 onClick={handleSaveToDatabase}
                 disabled={loading}
-                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors"
+                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
               >
                 <Database size={14} />
                 <span>{loading ? "Saving..." : "Save Dataset to Platform"}</span>
@@ -737,10 +783,12 @@ export default function ImportWizardPage() {
             </div>
           </div>
 
-          {/* Engineering Visualizer Navigation Tabs */}
-          <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-xs flex flex-wrap items-center justify-between gap-2">
+          {/* Row 2: Visualizer Navigation & Layout Switcher & Quick Flaw */}
+          <div className="bg-white rounded-xl border border-slate-200 p-2.5 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            {/* Visualizer Mode Tabs */}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
+                type="button"
                 onClick={() => setVisualizerTab("POLAR_RING")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   visualizerTab === "POLAR_RING"
@@ -749,10 +797,11 @@ export default function ImportWizardPage() {
                 }`}
               >
                 <CircleDot size={14} />
-                <span>360° Circular Ring (Image 2)</span>
+                <span>360° Circular Ring</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => setVisualizerTab("WELD_WIDTH")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   visualizerTab === "WELD_WIDTH"
@@ -761,10 +810,11 @@ export default function ImportWizardPage() {
                 }`}
               >
                 <Maximize2 size={14} />
-                <span>Weld Width Plan (Image 1)</span>
+                <span>Weld Width Plan</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => setVisualizerTab("BEVEL_SLICE")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   visualizerTab === "BEVEL_SLICE"
@@ -773,10 +823,11 @@ export default function ImportWizardPage() {
                 }`}
               >
                 <Crosshair size={14} />
-                <span>Bevel S-Scan Profile (Image 3)</span>
+                <span>Bevel S-Scan Profile</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => setVisualizerTab("GROWTH_CURVE")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   visualizerTab === "GROWTH_CURVE"
@@ -785,10 +836,11 @@ export default function ImportWizardPage() {
                 }`}
               >
                 <TrendingUp size={14} />
-                <span>Growth & Predictive Forecast</span>
+                <span>Growth &amp; Forecast</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => setVisualizerTab("UNROLLED_RIBBON")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   visualizerTab === "UNROLLED_RIBBON"
@@ -799,189 +851,245 @@ export default function ImportWizardPage() {
                 <Layers size={14} />
                 <span>Unrolled 2D Ribbon</span>
               </button>
+            </div>
 
+            {/* Layout Switcher & Repair & Quick Flaw Selector */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Layout Mode Segmented Control */}
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setLayoutMode("SPLIT")}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition ${
+                    layoutMode === "SPLIT"
+                      ? "bg-white text-slate-900 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                  title="Side-by-side visualizer + defect table"
+                >
+                  Split View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLayoutMode("CANVAS_ONLY")}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition ${
+                    layoutMode === "CANVAS_ONLY"
+                      ? "bg-white text-sky-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                  title="Full-width expanded map (spacious view)"
+                >
+                  Expanded Map
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLayoutMode("TABLE_ONLY")}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition ${
+                    layoutMode === "TABLE_ONLY"
+                      ? "bg-white text-indigo-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                  title="Focus on historical defect register table"
+                >
+                  Table Only
+                </button>
+              </div>
+
+              {/* Repair Zones Button */}
               <button
                 type="button"
                 onClick={() => setShowRepairModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 cursor-pointer"
                 title="Manage partial weld replacements and review disappeared flaw anomalies"
               >
                 <Wrench size={14} className="text-emerald-700" />
-                <span>Repair &amp; Replaced Zones ({repairZones.length})</span>
+                <span>Repairs ({repairZones.length})</span>
                 {anomalies.length > 0 && (
                   <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-white animate-pulse">
                     {anomalies.length} anomaly
                   </span>
                 )}
               </button>
-            </div>
 
-            {/* Quick Flaw Selector */}
-            {activeFlaw && (
-              <div className="flex items-center gap-1.5 pr-2">
-                <span className="text-xs text-slate-500 font-medium">Selected Flaw:</span>
-                <select
-                  value={activeFlaw.code}
-                  onChange={(e) => {
-                    const found = filteredIndications.find(i => i.code === e.target.value);
-                    if (found) setSelectedFlawForForecast(found);
-                  }}
-                  className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-sky-800 bg-slate-50 shadow-xs focus:ring-1 focus:ring-sky-500"
-                >
-                  {filteredIndications.map(pi => (
-                    <option key={pi.code} value={pi.code}>
-                      {pi.code} ({pi.drumName}-{pi.weldName} @ {pi.locationText})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-
-          {/* Active Visualization Display */}
-          {visualizerTab === "POLAR_RING" && (
-            <PolarCircumferentialRingMap
-              indications={filteredIndications}
-              selectedFlawCode={activeFlaw?.code}
-              onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
-              drumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}
-              weldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}
-              repairZones={repairZones}
-            />
-          )}
-
-          {visualizerTab === "WELD_WIDTH" && (
-            <WeldWidthPlanPlot
-              indications={filteredIndications}
-              selectedFlawCode={activeFlaw?.code}
-              onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
-              repairZones={repairZones}
-            />
-          )}
-
-          {visualizerTab === "BEVEL_SLICE" && activeFlaw && (
-            <WeldBevelSScanProfile
-              indication={activeFlaw}
-              nominalWallThickness={32.0}
-            />
-          )}
-
-          {visualizerTab === "GROWTH_CURVE" && activeFlaw && (
-            <PredictiveForecastChart
-              measurements={getMeasurementsForFlaw(activeFlaw)}
-              flawCode={activeFlaw.code}
-              locationInfo={`${activeFlaw.drumName} — Joint ${activeFlaw.weldName} @ ${activeFlaw.locationText}`}
-              nominalThickness={32.0}
-            />
-          )}
-
-          {visualizerTab === "UNROLLED_RIBBON" && (
-            <WeldCircumferentialMap
-              indications={filteredIndications}
-              selectedCampaign={selectedCampaign}
-              campaigns={matrixResult.campaigns}
-              activeDrumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks.join(", ")}
-              activeWeldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.join(", ")}
-              onSelectIndication={(pi) => setSelectedFlawForForecast(pi)}
-              selectedIndicationCode={activeFlaw?.code}
-            />
-          )}
-
-          {/* Detailed Historical Inspection Observations Matrix Table */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-800">Historical Defect Progression Table</h3>
-                <p className="text-xs text-slate-500">
-                  Showing {filteredIndications.length} tracked flaw entities across {matrixResult.campaigns.length} campaigns
-                </p>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-96">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-100 text-slate-700 font-semibold sticky top-0 border-b border-slate-200">
-                  <tr>
-                    <th className="p-3">Flaw Code</th>
-                    <th className="p-3">Tank</th>
-                    <th className="p-3">Joint</th>
-                    <th className="p-3">Segment</th>
-                    <th className="p-3">Defect Location</th>
-                    {matrixResult.campaigns.map(c => (
-                      <th key={c.key} className="p-3 whitespace-nowrap">{c.key} (mm)</th>
+              {/* Quick Flaw Selector */}
+              {activeFlaw && (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+                  <span className="text-[11px] text-slate-500 font-medium">Flaw:</span>
+                  <select
+                    value={activeFlaw.code}
+                    onChange={(e) => {
+                      const found = filteredIndications.find(i => i.code === e.target.value);
+                      if (found) setSelectedFlawForForecast(found);
+                    }}
+                    className="border border-slate-300 rounded px-1.5 py-0.5 text-xs font-bold text-sky-800 bg-white max-w-[170px] truncate focus:ring-1 focus:ring-sky-500"
+                  >
+                    {filteredIndications.map(pi => (
+                      <option key={pi.code} value={pi.code}>
+                        {pi.code} ({getJointDisplayName(pi.weldName)} @ {pi.locationText})
+                      </option>
                     ))}
-                    <th className="p-3 whitespace-nowrap">Growth Delta</th>
-                    <th className="p-3 whitespace-nowrap">Annual Rate</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-center">Forecast</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredIndications.map((pi) => (
-                    <tr
-                      key={pi.code}
-                      onClick={() => setSelectedFlawForForecast(pi)}
-                      className={`border-b border-slate-100 hover:bg-sky-50/60 transition-colors cursor-pointer ${
-                        activeFlaw?.code === pi.code ? "bg-sky-50 font-medium" : ""
-                      }`}
-                    >
-                      <td className="p-3 font-bold text-sky-700">{pi.code}</td>
-                      <td className="p-3 font-semibold text-slate-800">{pi.drumName}</td>
-                      <td className="p-3 font-medium text-slate-700">{pi.weldName}</td>
-                      <td className="p-3 text-slate-500">{pi.segment || "—"}</td>
-                      <td className="p-3 font-medium">{pi.locationText}</td>
-                      {matrixResult.campaigns.map(c => {
-                        const val = pi.campaignValues[c.key]?.length;
-                        return (
-                          <td key={c.key} className="p-3 text-slate-700 font-semibold">
-                            {val !== null && val !== undefined ? `${val} mm` : <span className="text-slate-300">—</span>}
-                          </td>
-                        );
-                      })}
-                      <td className="p-3 font-bold">
-                        {pi.growthDelta > 0 ? (
-                          <span className="text-amber-600">+{pi.growthDelta} mm</span>
-                        ) : pi.growthDelta < 0 ? (
-                          <span className="text-emerald-600">{pi.growthDelta} mm</span>
-                        ) : (
-                          <span className="text-slate-400">0 mm</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {pi.growthRateYear > 0 ? (
-                          <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 text-[10px]">
-                            +{pi.growthRateYear} mm/yr
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-[10px]">Stable</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${pi.hasRepairs ? "bg-emerald-100 text-emerald-800" : "bg-sky-100 text-sky-800"}`}>
-                          {pi.hasRepairs ? "REPAIRED" : "ACTIVE"}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedFlawForForecast(pi);
-                          }}
-                          className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
-                            activeFlaw?.code === pi.code
-                              ? "bg-sky-600 text-white shadow-xs"
-                              : "bg-slate-100 text-slate-700 hover:bg-sky-100 hover:text-sky-800"
-                          }`}
-                        >
-                          {activeFlaw?.code === pi.code ? "Active" : "Inspect"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Active Visualization Display (Hidden if TABLE_ONLY) */}
+          {layoutMode !== "TABLE_ONLY" && (
+            <div>
+              {visualizerTab === "POLAR_RING" && (
+                <PolarCircumferentialRingMap
+                  indications={filteredIndications}
+                  selectedFlawCode={activeFlaw?.code}
+                  onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
+                  drumName={selectedDrums.includes("ALL") ? "All Coke Drums" : selectedDrums.map(d => `Coke Drum ${d}`).join(", ")}
+                  weldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.map(w => getJointDisplayName(w)).join(", ")}
+                  repairZones={repairZones}
+                  layoutMode={layoutMode}
+                />
+              )}
+
+              {visualizerTab === "WELD_WIDTH" && (
+                <WeldWidthPlanPlot
+                  indications={filteredIndications}
+                  selectedFlawCode={activeFlaw?.code}
+                  onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
+                  repairZones={repairZones}
+                />
+              )}
+
+              {visualizerTab === "BEVEL_SLICE" && activeFlaw && (
+                <WeldBevelSScanProfile
+                  indication={activeFlaw}
+                  nominalWallThickness={32.0}
+                />
+              )}
+
+              {visualizerTab === "GROWTH_CURVE" && activeFlaw && (
+                <PredictiveForecastChart
+                  measurements={getMeasurementsForFlaw(activeFlaw)}
+                  flawCode={activeFlaw.code}
+                  locationInfo={`${activeFlaw.drumName} — ${getJointDisplayName(activeFlaw.weldName)} @ ${activeFlaw.locationText}`}
+                  nominalThickness={32.0}
+                />
+              )}
+
+              {visualizerTab === "UNROLLED_RIBBON" && (
+                <WeldCircumferentialMap
+                  indications={filteredIndications}
+                  selectedCampaign={selectedCampaign}
+                  campaigns={matrixResult.campaigns}
+                  activeDrumName={selectedDrums.includes("ALL") ? "All Coke Drums" : selectedDrums.map(d => `Coke Drum ${d}`).join(", ")}
+                  activeWeldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.map(w => getJointDisplayName(w)).join(", ")}
+                  onSelectIndication={(pi) => setSelectedFlawForForecast(pi)}
+                  selectedIndicationCode={activeFlaw?.code}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Detailed Historical Inspection Observations Matrix Table (Hidden if CANVAS_ONLY) */}
+          {layoutMode !== "CANVAS_ONLY" && (
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Historical Defect Progression Table</h3>
+                  <p className="text-xs text-slate-500">
+                    Showing {filteredIndications.length} tracked flaw entities across {matrixResult.campaigns.length} campaigns
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-96">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 text-slate-700 font-semibold sticky top-0 border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">Flaw Code</th>
+                      <th className="p-3">Coke Drum</th>
+                      <th className="p-3">Joint</th>
+                      <th className="p-3">Segment</th>
+                      <th className="p-3">Defect Location</th>
+                      {matrixResult.campaigns.map(c => (
+                        <th key={c.key} className="p-3 whitespace-nowrap">{c.key} (mm)</th>
+                      ))}
+                      <th className="p-3 whitespace-nowrap">Growth Delta</th>
+                      <th className="p-3 whitespace-nowrap">Annual Rate</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 text-center">Forecast</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredIndications.map((pi) => (
+                      <tr
+                        key={pi.code}
+                        onClick={() => setSelectedFlawForForecast(pi)}
+                        className={`border-b border-slate-100 hover:bg-sky-50/60 transition-colors cursor-pointer ${
+                          activeFlaw?.code === pi.code ? "bg-sky-50 font-medium" : ""
+                        }`}
+                      >
+                        <td className="p-3 font-bold text-sky-700">{pi.code}</td>
+                        <td className="p-3 font-semibold text-slate-800">{pi.drumName}</td>
+                        <td className="p-3 font-medium text-slate-700">
+                          <span>{getJointDisplayName(pi.weldName)}</span>
+                          {jointAliases[pi.weldName] && (
+                            <span className="ml-1 text-[10px] text-slate-400 font-mono">({pi.weldName})</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-slate-500">{pi.segment || "—"}</td>
+                        <td className="p-3 font-medium">{pi.locationText}</td>
+                        {matrixResult.campaigns.map(c => {
+                          const val = pi.campaignValues[c.key]?.length;
+                          return (
+                            <td key={c.key} className="p-3 text-slate-700 font-semibold">
+                              {val !== null && val !== undefined ? `${val} mm` : <span className="text-slate-300">—</span>}
+                            </td>
+                          );
+                        })}
+                        <td className="p-3 font-bold">
+                          {pi.growthDelta > 0 ? (
+                            <span className="text-amber-600">+{pi.growthDelta} mm</span>
+                          ) : pi.growthDelta < 0 ? (
+                            <span className="text-emerald-600">{pi.growthDelta} mm</span>
+                          ) : (
+                            <span className="text-slate-400">0 mm</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {pi.growthRateYear > 0 ? (
+                            <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 text-[10px]">
+                              +{pi.growthRateYear} mm/yr
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">Stable</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${pi.hasRepairs ? "bg-emerald-100 text-emerald-800" : "bg-sky-100 text-sky-800"}`}>
+                            {pi.hasRepairs ? "REPAIRED" : "ACTIVE"}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedFlawForForecast(pi);
+                            }}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
+                              activeFlaw?.code === pi.code
+                                ? "bg-sky-600 text-white shadow-xs"
+                                : "bg-slate-100 text-slate-700 hover:bg-sky-100 hover:text-sky-800"
+                            }`}
+                          >
+                            {activeFlaw?.code === pi.code ? "Active" : "Inspect"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1036,7 +1144,17 @@ export default function ImportWizardPage() {
           setAnomalies((prev) => prev.filter((a) => a.indicationCode !== anomaly.indicationCode));
         }}
         currentWeldName={selectedWelds.includes("ALL") ? "C6" : selectedWelds[0]}
-        currentDrumName={selectedTanks.includes("ALL") ? "All Tanks" : selectedTanks[0]}
+        currentDrumName={selectedDrums.includes("ALL") ? "All Coke Drums" : selectedDrums[0]}
+      />
+
+      {/* Customize & Rename Weld Joints Modal */}
+      <RenameJointModal
+        isOpen={showRenameModal}
+        onClose={() => setShowRenameModal(false)}
+        availableWelds={matrixResult?.availableWelds || []}
+        activeWeld={selectedWelds[0] || "ALL"}
+        jointAliases={jointAliases}
+        onSaveAliases={(aliases) => setJointAliases(aliases)}
       />
     </div>
   );
