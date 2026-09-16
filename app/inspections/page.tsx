@@ -1,14 +1,29 @@
+import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { inspections, cokeDrums } from "@/db/schema";
+import { eq, inArray } from "drizzle-orm";
 import Link from "next/link";
-import { Activity, Upload, TrendingUp, Calendar, ArrowRight } from "lucide-react";
+import { Upload, Calendar, ArrowRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function InspectionsIndexPage() {
+  const session = await auth();
+  const role = (session?.user as any)?.role || "CLIENT";
+  const userClientId = (session?.user as any)?.clientId ? Number((session?.user as any)?.clientId) : null;
+  const isMaster = role === "MASTER";
+
   let inspectionList: any[] = [];
   try {
-    inspectionList = await db.select().from(inspections);
+    if (!isMaster && userClientId) {
+      const assignedDrums = await db.select().from(cokeDrums).where(eq(cokeDrums.clientId, userClientId));
+      const assignedIds = assignedDrums.map(d => d.id);
+      if (assignedIds.length > 0) {
+        inspectionList = await db.select().from(inspections).where(inArray(inspections.drumId, assignedIds));
+      }
+    } else {
+      inspectionList = await db.select().from(inspections);
+    }
   } catch (err) {
     console.error("Failed to load inspections:", err);
   }
@@ -22,13 +37,15 @@ export default async function InspectionsIndexPage() {
             PAUT and DRM inspection datasets recorded across turnaround campaigns
           </p>
         </div>
-        <Link
-          href="/inspections/import"
-          className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs transition"
-        >
-          <Upload size={14} />
-          <span>Import Dataset</span>
-        </Link>
+        {isMaster && (
+          <Link
+            href="/inspections/import"
+            className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs transition"
+          >
+            <Upload size={14} />
+            <span>Import Dataset</span>
+          </Link>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
@@ -64,7 +81,7 @@ export default async function InspectionsIndexPage() {
           ))}
           {inspectionList.length === 0 && (
             <div className="p-8 text-center text-slate-500 text-xs">
-              No inspection campaigns found. Upload your first dataset using the Import button.
+              No inspection campaigns found.
             </div>
           )}
         </div>

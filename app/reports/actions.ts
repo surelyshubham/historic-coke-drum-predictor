@@ -292,10 +292,17 @@ export async function getReportData(
     throw new Error("Unauthorized: Please sign in.");
   }
 
+  const role = (session.user as any).role || "CLIENT";
+  const userClientId = (session.user as any).clientId ? Number((session.user as any).clientId) : null;
+
   // 1. Fetch available drums
-  const drumsList = await db.select().from(cokeDrums).orderBy(asc(cokeDrums.name));
+  let drumsList = await db.select().from(cokeDrums).orderBy(asc(cokeDrums.name));
+  if (role !== "MASTER" && userClientId) {
+    drumsList = drumsList.filter(d => d.clientId === userClientId);
+  }
+
   if (drumsList.length === 0) {
-    throw new Error("No coke drums found in the system.");
+    throw new Error("No assigned coke drums found for your account.");
   }
 
   const activeDrum = drumId 

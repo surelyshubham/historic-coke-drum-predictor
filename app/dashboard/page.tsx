@@ -1,12 +1,14 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { cokeDrums, clients, inspections, physicalIndications, repairEvents } from "@/db/schema";
+import { eq, inArray } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await auth();
-  const role = (session?.user as { role?: string })?.role || "CLIENT";
+  const role = (session?.user as any)?.role || "CLIENT";
+  const userClientId = (session?.user as any)?.clientId ? Number((session?.user as any)?.clientId) : null;
   const isMaster = role === "MASTER";
 
   let drumsCount = 0;
@@ -17,13 +19,31 @@ export default async function DashboardPage() {
   let repairedCount = 0;
 
   try {
-    drumsCount = (await db.select().from(cokeDrums)).length;
-    clientsCount = (await db.select().from(clients)).length;
-    inspectionsCount = (await db.select().from(inspections)).length;
-    const indicationsList = await db.select().from(physicalIndications);
-    totalIndications = indicationsList.length;
-    activeIndications = indicationsList.filter(i => i.status === 'ACTIVE').length;
-    repairedCount = (await db.select().from(repairEvents)).length;
+    let drumList: any[] = [];
+    if (!isMaster && userClientId) {
+      drumList = await db.select().from(cokeDrums).where(eq(cokeDrums.clientId, userClientId));
+    } else {
+      drumList = await db.select().from(cokeDrums);
+    }
+    drumsCount = drumList.length;
+
+    if (isMaster) {
+      clientsCount = (await db.select().from(clients)).length;
+    }
+
+    const assignedDrumIds = drumList.map((d) => d.id);
+
+    if (assignedDrumIds.length > 0) {
+      const inspList = await db.select().from(inspections).where(inArray(inspections.drumId, assignedDrumIds));
+      inspectionsCount = inspList.length;
+
+      const indicationsList = await db.select().from(physicalIndications).where(inArray(physicalIndications.drumId, assignedDrumIds));
+      totalIndications = indicationsList.length;
+      activeIndications = indicationsList.filter((i) => i.status === "ACTIVE").length;
+
+      const repairsList = await db.select().from(repairEvents).where(inArray(repairEvents.drumId, assignedDrumIds));
+      repairedCount = repairsList.length;
+    }
   } catch (err) {
     console.error("Dashboard database query error:", err);
   }
@@ -37,7 +57,6 @@ export default async function DashboardPage() {
       
       {/* Overview Stat Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-sm font-medium text-slate-500">Coke Drums Monitored</h3>
           <div className="mt-4 flex items-baseline text-3xl font-bold text-sky-600">
@@ -70,7 +89,6 @@ export default async function DashboardPage() {
             <span className="text-emerald-600 font-semibold">{activeIndications} Active</span> | <span className="text-amber-600 font-semibold">{repairedCount} Repaired</span>
           </p>
         </div>
-
       </div>
 
       {/* Engineering Principles Notice */}

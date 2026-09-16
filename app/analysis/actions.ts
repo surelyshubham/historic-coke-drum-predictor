@@ -10,6 +10,13 @@ export async function getAnalysisDrums() {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
 
+  const role = (session.user as any).role || "CLIENT";
+  const userClientId = (session.user as any).clientId ? Number((session.user as any).clientId) : null;
+
+  if (role !== "MASTER" && userClientId) {
+    return await db.select().from(cokeDrums).where(eq(cokeDrums.clientId, userClientId));
+  }
+
   const drumsList = await db.select().from(cokeDrums);
   return drumsList;
 }
@@ -18,8 +25,20 @@ export async function getHistoricalAnalysisData(drumId: number) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
 
+  const role = (session.user as any).role || "CLIENT";
+  const userClientId = (session.user as any).clientId ? Number((session.user as any).clientId) : null;
+
   // 1. Drum & Weld details
   const [drum] = await db.select().from(cokeDrums).where(eq(cokeDrums.id, drumId)).limit(1);
+
+  if (!drum) {
+    throw new Error("Coke Drum not found.");
+  }
+
+  if (role !== "MASTER" && userClientId && drum.clientId !== userClientId) {
+    throw new Error("Unauthorized: You do not have permission to access this Coke Drum.");
+  }
+
   const welds = await db.select().from(weldJoints).where(eq(weldJoints.drumId, drumId));
   const weldMap = new Map(welds.map(w => [w.id, w.name]));
 

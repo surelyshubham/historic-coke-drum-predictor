@@ -22,7 +22,7 @@ export const users = pgTable('users', {
 // 3. Coke Drums
 export const cokeDrums = pgTable('coke_drums', {
   id: serial('id').primaryKey(),
-  clientId: integer('client_id').references(() => clients.id).notNull(),
+  clientId: integer('client_id').references(() => clients.id),
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
   diameter: doublePrecision('diameter'),

@@ -1,14 +1,25 @@
+import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { cokeDrums, weldJoints } from "@/db/schema";
+import { cokeDrums } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import Link from "next/link";
-import { Database, TrendingUp, LineChart, ChevronRight } from "lucide-react";
+import { Database, TrendingUp, LineChart } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function CokeDrumsPage() {
+  const session = await auth();
+  const role = (session?.user as any)?.role || "CLIENT";
+  const userClientId = (session?.user as any)?.clientId ? Number((session?.user as any)?.clientId) : null;
+  const isMaster = role === "MASTER";
+
   let drumsList: any[] = [];
   try {
-    drumsList = await db.select().from(cokeDrums);
+    if (!isMaster && userClientId) {
+      drumsList = await db.select().from(cokeDrums).where(eq(cokeDrums.clientId, userClientId));
+    } else {
+      drumsList = await db.select().from(cokeDrums);
+    }
   } catch (err) {
     console.error("Failed to load drums:", err);
   }
@@ -69,6 +80,12 @@ export default async function CokeDrumsPage() {
             </div>
           </div>
         ))}
+
+        {drumsList.length === 0 && (
+          <div className="col-span-full p-8 text-center text-slate-500 text-xs bg-white rounded-xl border border-slate-200">
+            No assigned Coke Drums found for your account.
+          </div>
+        )}
       </div>
     </div>
   );
