@@ -51,7 +51,12 @@ export async function getAvailableDrumsAction() {
   return JSON.parse(JSON.stringify(drumsList));
 }
 
-export async function createClientAction(data: { name: string; description?: string }) {
+export async function createClientAction(data: {
+  name: string;
+  description?: string;
+  email: string;
+  password: string;
+}) {
   const session = await auth();
   const role = (session?.user as any)?.role;
   if (role !== "MASTER") {
@@ -59,7 +64,27 @@ export async function createClientAction(data: { name: string; description?: str
   }
 
   if (!data.name || !data.name.trim()) {
-    throw new Error("Client name is required.");
+    throw new Error("Client organization name is required.");
+  }
+
+  if (!data.email || !data.email.trim()) {
+    throw new Error("Client login email address is required.");
+  }
+
+  if (!data.password || !data.password.trim()) {
+    throw new Error("Initial password is required.");
+  }
+
+  const cleanEmail = data.email.trim().toLowerCase();
+
+  const existingUser = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, cleanEmail))
+    .limit(1);
+
+  if (existingUser.length > 0) {
+    throw new Error("A user account with this email address already exists.");
   }
 
   const [newClient] = await db
@@ -70,8 +95,34 @@ export async function createClientAction(data: { name: string; description?: str
     })
     .returning();
 
+  const passwordHash = await bcrypt.hash(data.password, 10);
+
+  const [newUser] = await db
+    .insert(users)
+    .values({
+      email: cleanEmail,
+      name: `${data.name.trim()} Admin`,
+      passwordHash,
+      role: "CLIENT",
+      clientId: newClient.id,
+    })
+    .returning();
+
   revalidatePath("/clients");
-  return JSON.parse(JSON.stringify(newClient));
+  return JSON.parse(
+    JSON.stringify({
+      ...newClient,
+      assignedUsers: [
+        {
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          role: newUser.role,
+          createdAt: newUser.createdAt,
+        },
+      ],
+    })
+  );
 }
 
 export async function deleteClientAction(clientId: number) {

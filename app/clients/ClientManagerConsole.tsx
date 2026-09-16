@@ -75,6 +75,8 @@ export default function ClientManagerConsole({
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [newClientDesc, setNewClientDesc] = useState("");
+  const [newClientEmail, setNewClientEmail] = useState("");
+  const [newClientPassword, setNewClientPassword] = useState("");
 
   const [assigningClient, setAssigningClient] = useState<ClientDetail | null>(null);
   const [selectedDrumIds, setSelectedDrumIds] = useState<number[]>([]);
@@ -95,28 +97,32 @@ export default function ClientManagerConsole({
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
     clearNotifications();
-    if (!newClientName.trim()) return;
+    if (!newClientName.trim() || !newClientEmail.trim() || !newClientPassword.trim()) return;
 
     setLoading(true);
     try {
       const created = await createClientAction({
         name: newClientName,
         description: newClientDesc,
+        email: newClientEmail,
+        password: newClientPassword,
       });
 
       setClientsList((prev) => [
         ...prev,
         {
           ...created,
-          assignedDrums: [],
-          assignedUsers: [],
+          assignedDrums: created.assignedDrums || [],
+          assignedUsers: created.assignedUsers || [],
           inspectionsCount: 0,
         },
       ]);
-      setSuccessMsg(`Client "${created.name}" created successfully.`);
+      setSuccessMsg(`Client organization "${created.name}" created with user login "${newClientEmail}".`);
       setShowCreateClientModal(false);
       setNewClientName("");
       setNewClientDesc("");
+      setNewClientEmail("");
+      setNewClientPassword("");
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to create client.");
     } finally {
@@ -528,9 +534,35 @@ export default function ClientManagerConsole({
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Client Login Email Address *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. admin@refineryalpha.com"
+                  value={newClientEmail}
+                  onChange={(e) => setNewClientEmail(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">This email will serve as the client user's login ID.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Initial Password *</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="Generate or enter account password"
+                  value={newClientPassword}
+                  onChange={(e) => setNewClientPassword(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">Share this password with the client organization for initial sign in.</p>
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Description / Refinery Notes</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   placeholder="e.g. Primary delayed coking unit with 4 heavy vessel drums"
                   value={newClientDesc}
                   onChange={(e) => setNewClientDesc(e.target.value)}

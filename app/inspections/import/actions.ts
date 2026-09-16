@@ -230,6 +230,16 @@ export async function commitImportDatasetAction(payload: {
   return { success: true, inspectionId: newInspection.id, importedCount: obsValues.length };
 }
 
+export async function getClientsForImportAction() {
+  const session = await auth();
+  if (session?.user?.role !== "MASTER") {
+    throw new Error("Unauthorized");
+  }
+
+  const clientsList = await db.select().from(clients);
+  return JSON.parse(JSON.stringify(clientsList));
+}
+
 // Commit multi-campaign historical matrix dataset (like the PDF format)
 export async function commitMatrixDatasetAction(payload: {
   drumId: number;
@@ -237,6 +247,7 @@ export async function commitMatrixDatasetAction(payload: {
   sizeBytes: number;
   mimeType: string;
   matrixResult: MatrixParseResult;
+  targetClientId?: number;
 }) {
   const session = await auth();
   if (session?.user?.role !== "MASTER") {
@@ -256,7 +267,7 @@ export async function commitMatrixDatasetAction(payload: {
     validUserId = firstMaster?.id || 1;
   }
 
-  const { drumId, matrixResult } = payload;
+  const { drumId, matrixResult, targetClientId } = payload;
 
   try {
     // 0. Auto-register all unique drums detected in the matrix if missing
@@ -264,7 +275,7 @@ export async function commitMatrixDatasetAction(payload: {
     const drumLookup = new Map<string, number>();
     existingDrums.forEach((d) => drumLookup.set(d.name.toUpperCase().trim(), d.id));
 
-    let defaultClientId = existingDrums[0]?.clientId;
+    let defaultClientId = targetClientId || existingDrums[0]?.clientId;
     if (!defaultClientId) {
       const existingClients = await db.select().from(clients);
       if (existingClients.length > 0) {
@@ -297,6 +308,13 @@ export async function commitMatrixDatasetAction(payload: {
           })
           .returning();
         drumLookup.set(norm, newDrum.id);
+      } else if (targetClientId) {
+        // If drum exists and targetClientId is explicitly passed, assign/update drum to target client
+        const existingDrumId = drumLookup.get(norm)!;
+        await db
+          .update(cokeDrums)
+          .set({ clientId: targetClientId })
+          .where(eq(cokeDrums.id, existingDrumId));
       }
     }
 

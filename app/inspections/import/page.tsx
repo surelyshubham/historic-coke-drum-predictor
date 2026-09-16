@@ -6,7 +6,8 @@ import {
   getDrumsAndWelds, 
   parseWorkbookFile, 
   commitMatrixDatasetAction,
-  commitImportDatasetAction
+  commitImportDatasetAction,
+  getClientsForImportAction
 } from "./actions";
 import { MatrixParseResult, TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 import { 
@@ -50,7 +51,8 @@ import {
   Layers,
   Trash2,
   Wrench,
-  Pencil
+  Pencil,
+  Building
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -59,6 +61,10 @@ export default function ImportWizardPage() {
   const [step, setStep] = useState<"UPLOAD" | "PREFERENCES" | "VISUALIZATION" | "SAVED">("UPLOAD");
   const [drums, setDrums] = useState<any[]>([]);
   const [selectedDrumId, setSelectedDrumId] = useState<number>(1);
+
+  // Target Client Selection State
+  const [clientsList, setClientsList] = useState<Array<{ id: number; name: string; description?: string | null }>>([]);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
 
   // File Upload State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -142,6 +148,16 @@ export default function ImportWizardPage() {
         if (data.drums.length > 0) setSelectedDrumId(data.drums[0].id);
       })
       .catch((err) => console.warn("Drums notice:", err.message));
+
+    getClientsForImportAction()
+      .then((cls) => {
+        setClientsList(cls);
+        if (cls.length > 0) {
+          setSelectedClientId(cls[0].id);
+        }
+      })
+      .catch((err) => console.warn("Clients notice:", err.message));
+
     loadVaultDatasets();
   }, []);
 
@@ -422,6 +438,17 @@ export default function ImportWizardPage() {
       const vaultId = `vault_${Date.now()}`;
       const name = parsedWorkbook?.filename || selectedFile?.name || `PAUT_Historical_Dataset_${new Date().toISOString().split("T")[0]}.xlsx`;
 
+      // 1. Commit dataset to Database and assign to target client
+      const dbResult = await commitMatrixDatasetAction({
+        drumId: selectedDrumId || 1,
+        filename: name,
+        sizeBytes: selectedFile?.size || 0,
+        mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        matrixResult,
+        targetClientId: selectedClientId || undefined,
+      });
+
+      // 2. Cache in Local Browser Vault
       await saveDatasetToVault({
         id: vaultId,
         name,
@@ -444,11 +471,11 @@ export default function ImportWizardPage() {
         drumsCount: matrixResult.availableDrums.length,
         campaignsCount: matrixResult.campaigns.length,
         physicalIndicationsCount: matrixResult.physicalIndications.length,
-        observationsCount: matrixResult.observations.length,
+        observationsCount: dbResult.observationsCount || matrixResult.observations.length,
       });
       setStep("SAVED");
     } catch (err: any) {
-      setErrorMessage(err.message || "Failed to save dataset to Vault");
+      setErrorMessage(err.message || "Failed to save dataset to database");
     } finally {
       setLoading(false);
     }
@@ -496,6 +523,29 @@ export default function ImportWizardPage() {
               <Sparkles size={15} className="text-sky-600" />
               <span>Load Synthetic SEZ PAUT Matrix File</span>
             </button>
+          </div>
+
+          {/* Target Client Organization Selector */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Building size={14} className="text-sky-600" />
+                <span>Target Client Organization *</span>
+              </label>
+              <p className="text-[11px] text-slate-500">Select which refinery client organization this inspection matrix belongs to</p>
+            </div>
+            <select
+              value={selectedClientId || ""}
+              onChange={(e) => setSelectedClientId(Number(e.target.value))}
+              className="border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none min-w-[240px]"
+            >
+              {clientsList.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+              {clientsList.length === 0 && <option value="">No registered clients (auto-create default)</option>}
+            </select>
           </div>
 
           <div className="border-2 border-dashed border-sky-200 rounded-xl p-8 text-center bg-sky-50/30 space-y-4">
@@ -593,6 +643,31 @@ export default function ImportWizardPage() {
             <p className="text-xs text-slate-500 mt-1">
               Detected <strong>{matrixResult.availableDrums.length} Coke Drums</strong> and <strong>{matrixResult.availableWelds.length} Weld Joints</strong> across <strong>{matrixResult.campaigns.length} Inspection Campaigns</strong>.
             </p>
+          </div>
+
+          {/* 0. Target Client Selector */}
+          <div className="space-y-2 bg-sky-50/60 border border-sky-200 p-4 rounded-xl">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-sky-900 flex items-center gap-1.5">
+                <Building size={14} className="text-sky-700" />
+                <span>Assign Inspection Dataset to Target Client Organization *</span>
+              </label>
+              <Link href="/clients" className="text-[11px] font-bold text-sky-700 hover:underline">
+                + Manage Clients
+              </Link>
+            </div>
+            <select
+              value={selectedClientId || ""}
+              onChange={(e) => setSelectedClientId(Number(e.target.value))}
+              className="w-full border border-sky-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"
+            >
+              {clientsList.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name} {client.description ? `(${client.description})` : ""}
+                </option>
+              ))}
+              {clientsList.length === 0 && <option value="">No clients registered (auto-creates default facility)</option>}
+            </select>
           </div>
 
           {/* 1. Coke Drum Selector */}
@@ -708,6 +783,26 @@ export default function ImportWizardPage() {
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
             {/* Left: Scope filters */}
             <div className="flex flex-wrap items-center gap-3">
+              {/* Target Client Org selector */}
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+                <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                  <Building size={12} className="text-sky-600" />
+                  <span>Client Org:</span>
+                </span>
+                <select
+                  value={selectedClientId || ""}
+                  onChange={(e) => setSelectedClientId(Number(e.target.value))}
+                  className="border border-slate-300 rounded px-2 py-0.5 text-xs font-bold text-sky-800 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                >
+                  {clientsList.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                  {clientsList.length === 0 && <option value="">No Client Selected</option>}
+                </select>
+              </div>
+
               {/* Coke Drum selector */}
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
                 <span className="text-xs font-bold text-slate-600">Coke Drum:</span>
