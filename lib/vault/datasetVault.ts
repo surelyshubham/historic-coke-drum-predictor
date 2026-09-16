@@ -17,6 +17,7 @@ export interface VaultDataset {
   nominalWallThickness?: number;
   cladThickness?: number;
   jointDegrees?: number;
+  weldSpecs?: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number }>;
 }
 
 export interface VaultDatasetSummary {

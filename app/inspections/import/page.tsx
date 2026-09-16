@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { 
   getDrumsAndWelds, 
@@ -85,11 +85,24 @@ export default function ImportWizardPage() {
   const [jointAliases, setJointAliases] = useState<Record<string, string>>({});
   const [showRenameModal, setShowRenameModal] = useState<boolean>(false);
 
-  // Configurable Drum & Weld Joint Specifications
+  // Configurable Drum & Weld Joint Specifications (Master / Defaults)
   const [nominalWallThickness, setNominalWallThickness] = useState<number>(32.0);
   const [cladThickness, setCladThickness] = useState<number>(3.0);
   const [jointDegrees, setJointDegrees] = useState<number>(60.0);
   const [showSpecsModal, setShowSpecsModal] = useState<boolean>(false);
+
+  // Master Buffer Inputs for Step 2 Bulk Apply
+  const [masterWallThickness, setMasterWallThickness] = useState<string>("32.0");
+  const [masterCladThickness, setMasterCladThickness] = useState<string>("3.0");
+  const [masterJointDegrees, setMasterJointDegrees] = useState<string>("60.0");
+
+  // Per-Weld Specifications: individual entry for each weld seam (e.g. C1, C2)
+  const [weldSpecs, setWeldSpecs] = useState<Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string }>>({});
+
+  // Quick Tuner Modal Local State
+  const [specModalWall, setSpecModalWall] = useState<string>("32.0");
+  const [specModalClad, setSpecModalClad] = useState<string>("3.0");
+  const [specModalDegrees, setSpecModalDegrees] = useState<string>("60.0");
 
   const getJointDisplayName = (weldKey: string) => {
     if (!weldKey) return "";
@@ -185,9 +198,29 @@ export default function ImportWizardPage() {
         setMatrixResult(ds.matrixResult);
         if (ds.repairZones) setRepairZones(ds.repairZones);
         if (ds.jointAliases) setJointAliases(ds.jointAliases);
-        if (typeof ds.nominalWallThickness === "number") setNominalWallThickness(ds.nominalWallThickness);
-        if (typeof ds.cladThickness === "number") setCladThickness(ds.cladThickness);
-        if (typeof ds.jointDegrees === "number") setJointDegrees(ds.jointDegrees);
+        if (typeof ds.nominalWallThickness === "number") {
+          setNominalWallThickness(ds.nominalWallThickness);
+          setMasterWallThickness(String(ds.nominalWallThickness));
+        }
+        if (typeof ds.cladThickness === "number") {
+          setCladThickness(ds.cladThickness);
+          setMasterCladThickness(String(ds.cladThickness));
+        }
+        if (typeof ds.jointDegrees === "number") {
+          setJointDegrees(ds.jointDegrees);
+          setMasterJointDegrees(String(ds.jointDegrees));
+        }
+        if (ds.weldSpecs) {
+          const restored: Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string }> = {};
+          Object.entries(ds.weldSpecs).forEach(([w, spec]) => {
+            restored[w] = {
+              wallThickness: String(spec.nominalWallThickness),
+              cladThickness: String(spec.cladThickness),
+              jointDegrees: String(spec.jointDegrees),
+            };
+          });
+          setWeldSpecs(restored);
+        }
         setSelectedDrums(ds.activeDrum ? [ds.activeDrum] : ["ALL"]);
         setSelectedWelds(ds.activeWeld ? [ds.activeWeld] : ["ALL"]);
         await setActiveVaultDatasetId(id);
@@ -431,12 +464,127 @@ export default function ImportWizardPage() {
     return ms;
   };
 
+  // Natural sort helper so welds appear as C1, C2, ..., C9, C10 instead of C1, C10, C2
+  const naturalSortWelds = (welds: string[]) => {
+    return [...welds].sort((a, b) => {
+      const numA = parseInt(a.replace(/\D/g, ""), 10);
+      const numB = parseInt(b.replace(/\D/g, ""), 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+    });
+  };
+
   // Available welds for selected Coke Drums
-  const availableWeldsForSelectedDrums = matrixResult ? Array.from(new Set(
-    matrixResult.physicalIndications
-      .filter(pi => selectedDrums.includes("ALL") || selectedDrums.includes(pi.drumName))
-      .map(pi => pi.weldName)
-  )).sort() : [];
+  const availableWeldsForSelectedDrums = useMemo(() => {
+    if (!matrixResult) return [];
+    const raw = Array.from(new Set(
+      matrixResult.physicalIndications
+        .filter(pi => selectedDrums.includes("ALL") || selectedDrums.includes(pi.drumName))
+        .map(pi => pi.weldName)
+    ));
+    return naturalSortWelds(raw);
+  }, [matrixResult, selectedDrums]);
+
+  // Synchronize available welds into weldSpecs state
+  useEffect(() => {
+    if (availableWeldsForSelectedDrums.length > 0) {
+      setWeldSpecs((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        availableWeldsForSelectedDrums.forEach((w) => {
+          if (!next[w]) {
+            next[w] = {
+              wallThickness: masterWallThickness || String(nominalWallThickness),
+              cladThickness: masterCladThickness || String(cladThickness),
+              jointDegrees: masterJointDegrees || String(jointDegrees),
+            };
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [availableWeldsForSelectedDrums]);
+
+  // Get numeric specifications for a given weld seam (or fallback to master/defaults)
+  const getNumericWeldSpec = (weldKey?: string | null) => {
+    if (weldKey && weldSpecs[weldKey]) {
+      const spec = weldSpecs[weldKey];
+      const wall = parseFloat(spec.wallThickness);
+      const clad = parseFloat(spec.cladThickness);
+      const deg = parseFloat(spec.jointDegrees);
+      return {
+        wallThickness: !isNaN(wall) && wall > 0 ? wall : nominalWallThickness,
+        cladThickness: !isNaN(clad) && clad >= 0 ? clad : cladThickness,
+        jointDegrees: !isNaN(deg) && deg > 0 ? deg : jointDegrees,
+      };
+    }
+    return {
+      wallThickness: nominalWallThickness,
+      cladThickness: cladThickness,
+      jointDegrees: jointDegrees,
+    };
+  };
+
+  const handleUpdateWeldSpec = (weldKey: string, field: "wallThickness" | "cladThickness" | "jointDegrees", value: string) => {
+    setWeldSpecs((prev) => ({
+      ...prev,
+      [weldKey]: {
+        ...(prev[weldKey] || {
+          wallThickness: masterWallThickness,
+          cladThickness: masterCladThickness,
+          jointDegrees: masterJointDegrees,
+        }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleResetWeldToMaster = (weldKey: string) => {
+    setWeldSpecs((prev) => ({
+      ...prev,
+      [weldKey]: {
+        wallThickness: masterWallThickness || "32.0",
+        cladThickness: masterCladThickness || "3.0",
+        jointDegrees: masterJointDegrees || "60.0",
+      },
+    }));
+  };
+
+  const handleApplyMasterToAllWelds = () => {
+    const wall = masterWallThickness.trim() || "32.0";
+    const clad = masterCladThickness.trim() || "3.0";
+    const deg = masterJointDegrees.trim() || "60.0";
+
+    const parsedWall = parseFloat(wall) || 32.0;
+    const parsedClad = parseFloat(clad) || 3.0;
+    const parsedDeg = parseFloat(deg) || 60.0;
+
+    setNominalWallThickness(parsedWall);
+    setCladThickness(parsedClad);
+    setJointDegrees(parsedDeg);
+
+    const updated: Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string }> = {};
+    availableWeldsForSelectedDrums.forEach((w) => {
+      updated[w] = {
+        wallThickness: wall,
+        cladThickness: clad,
+        jointDegrees: deg,
+      };
+    });
+    setWeldSpecs((prev) => ({ ...prev, ...updated }));
+  };
+
+  const effectiveWeldKey = activeFlaw?.weldName || (selectedWelds.length === 1 && selectedWelds[0] !== "ALL" ? selectedWelds[0] : (availableWeldsForSelectedDrums[0] || null));
+  const activeSpec = getNumericWeldSpec(effectiveWeldKey);
+
+  const openSpecsModal = () => {
+    const spec = getNumericWeldSpec(effectiveWeldKey);
+    setSpecModalWall(String(spec.wallThickness));
+    setSpecModalClad(String(spec.cladThickness));
+    setSpecModalDegrees(String(spec.jointDegrees));
+    setShowSpecsModal(true);
+  };
 
   // Save to Local Vault & Database
   const handleSaveToDatabase = async () => {
@@ -446,6 +594,16 @@ export default function ImportWizardPage() {
     try {
       const vaultId = `vault_${Date.now()}`;
       const name = parsedWorkbook?.filename || selectedFile?.name || `PAUT_Historical_Dataset_${new Date().toISOString().split("T")[0]}.xlsx`;
+
+      const formattedWeldSpecs: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number }> = {};
+      availableWeldsForSelectedDrums.forEach((w) => {
+        const numSpec = getNumericWeldSpec(w);
+        formattedWeldSpecs[w] = {
+          nominalWallThickness: numSpec.wallThickness,
+          cladThickness: numSpec.cladThickness,
+          jointDegrees: numSpec.jointDegrees,
+        };
+      });
 
       // 1. Commit dataset to Database and assign to target client
       const dbResult = await commitMatrixDatasetAction({
@@ -458,6 +616,7 @@ export default function ImportWizardPage() {
         nominalWallThickness,
         cladThickness,
         jointDegrees,
+        weldSpecs: formattedWeldSpecs,
       });
 
       // 2. Cache in Local Browser Vault
@@ -477,6 +636,7 @@ export default function ImportWizardPage() {
         nominalWallThickness,
         cladThickness,
         jointDegrees,
+        weldSpecs: formattedWeldSpecs,
       });
 
       await setActiveVaultDatasetId(vaultId);
@@ -759,81 +919,223 @@ export default function ImportWizardPage() {
           </div>
 
           {/* 3. Drum & Weld Joint Geometry Specifications */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
               <div>
                 <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Sliders size={16} className="text-sky-600" />
                   <span>3. Drum &amp; Weld Joint Specifications</span>
                 </h4>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Pre-configured engineering parameters for through-wall cross-sections, 360° ring maps, and remaining ligament calculations.
+                  Configure nominal wall thickness, cladding, and total groove angle individually for each weld joint below, or apply master parameters in bulk across all welds.
                 </p>
               </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800">
-                Configurable
+              <span className="self-start sm:self-center text-[10px] font-bold px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 border border-sky-200 uppercase tracking-wider">
+                Per-Weld Configurable
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-              {/* Nominal Wall Thickness */}
-              <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-1 shadow-xs">
-                <label className="block text-xs font-bold text-slate-700">
-                  Nominal Wall Thickness (mm)
-                </label>
+            {/* Master Batch Settings Bar */}
+            <div className="bg-white border border-sky-200 rounded-xl p-4 shadow-xs space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="5"
-                    max="150"
-                    value={nominalWallThickness}
-                    onChange={(e) => setNominalWallThickness(Math.max(1, parseFloat(e.target.value) || 32.0))}
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
-                  />
-                  <span className="text-xs text-slate-500 font-bold shrink-0">mm</span>
+                  <Sparkles size={15} className="text-sky-600" />
+                  <span className="text-xs font-bold text-slate-800">Master Batch Settings (Apply to All Welds):</span>
+                  <span className="text-[11px] text-slate-400 hidden md:inline">Quickly sync parameters across all {availableWeldsForSelectedDrums.length} welds</span>
                 </div>
-                <p className="text-[10px] text-slate-400">Default: 32.0 mm</p>
+                <button
+                  type="button"
+                  onClick={handleApplyMasterToAllWelds}
+                  className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Click to apply these master thickness and angle values to every weld listed below"
+                >
+                  <CheckCircle2 size={13} />
+                  <span>Apply to All Welds ({availableWeldsForSelectedDrums.length})</span>
+                </button>
               </div>
 
-              {/* Clad Thickness */}
-              <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-1 shadow-xs">
-                <label className="block text-xs font-bold text-slate-700">
-                  Cladding Thickness (mm)
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="30"
-                    value={cladThickness}
-                    onChange={(e) => setCladThickness(Math.max(0, parseFloat(e.target.value) || 0))}
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
-                  />
-                  <span className="text-xs text-slate-500 font-bold shrink-0">mm</span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                {/* Master Wall */}
+                <div className="bg-sky-50/50 border border-sky-100 rounded-lg p-2.5 space-y-1">
+                  <label className="block text-[11px] font-bold text-slate-700">
+                    Master Wall Thickness (mm)
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      max="200"
+                      value={masterWallThickness}
+                      onChange={(e) => setMasterWallThickness(e.target.value)}
+                      className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-7 text-right"
+                    />
+                    <span className="absolute right-2 text-[11px] text-slate-400 font-bold pointer-events-none">mm</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">Default: 32.0 mm</p>
                 </div>
-                <p className="text-[10px] text-slate-400">Internal stainless steel cladding (Default: 3.0 mm)</p>
+
+                {/* Master Clad */}
+                <div className="bg-sky-50/50 border border-sky-100 rounded-lg p-2.5 space-y-1">
+                  <label className="block text-[11px] font-bold text-slate-700">
+                    Master Cladding Thickness (mm)
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="30"
+                      value={masterCladThickness}
+                      onChange={(e) => setMasterCladThickness(e.target.value)}
+                      className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-7 text-right"
+                    />
+                    <span className="absolute right-2 text-[11px] text-slate-400 font-bold pointer-events-none">mm</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">Internal clad (Default: 3.0 mm)</p>
+                </div>
+
+                {/* Master Degrees */}
+                <div className="bg-sky-50/50 border border-sky-100 rounded-lg p-2.5 space-y-1">
+                  <label className="block text-[11px] font-bold text-slate-700">
+                    Master Joint Degrees (Groove Angle °)
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="1"
+                      min="10"
+                      max="120"
+                      value={masterJointDegrees}
+                      onChange={(e) => setMasterJointDegrees(e.target.value)}
+                      className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-6 text-right"
+                    />
+                    <span className="absolute right-2 text-[11px] text-slate-400 font-bold pointer-events-none">°</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">Total groove angle (Default: 60°)</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Vertical Stack: All Welds Opened One by One Vertically */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Individual Weld Seam Data ({availableWeldsForSelectedDrums.length} Welds):
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Each weld joint can have its own independent engineering specifications
+                </span>
               </div>
 
-              {/* Welding Joint Degrees (Total Groove Angle) */}
-              <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-1 shadow-xs">
-                <label className="block text-xs font-bold text-slate-700">
-                  Welding Joint Degrees (°)
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="1"
-                    min="20"
-                    max="120"
-                    value={jointDegrees}
-                    onChange={(e) => setJointDegrees(Math.max(10, parseFloat(e.target.value) || 60.0))}
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
-                  />
-                  <span className="text-xs text-slate-500 font-bold shrink-0">deg</span>
+              <div className="border border-slate-200 rounded-xl bg-white overflow-hidden shadow-2xs divide-y divide-slate-100">
+                {/* Table Header Row */}
+                <div className="bg-slate-100/80 px-4 py-2.5 flex items-center justify-between text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  <div className="w-44 shrink-0">Weld Joint</div>
+                  <div className="flex-1 grid grid-cols-3 gap-4 max-w-xl text-center">
+                    <div>Nominal Wall (mm)</div>
+                    <div>Cladding (mm)</div>
+                    <div>Groove Angle (°)</div>
+                  </div>
+                  <div className="w-20 text-right shrink-0">Action</div>
                 </div>
-                <p className="text-[10px] text-slate-400">Total groove angle (Default: 60° / 30° per side)</p>
+
+                {/* Vertical Rows: One by One */}
+                {availableWeldsForSelectedDrums.map((weld) => {
+                  const spec = weldSpecs[weld] || {
+                    wallThickness: masterWallThickness,
+                    cladThickness: masterCladThickness,
+                    jointDegrees: masterJointDegrees,
+                  };
+                  const flawCount = (matrixResult?.physicalIndications || []).filter(
+                    (pi) => (selectedDrums.includes("ALL") || selectedDrums.includes(pi.drumName)) && pi.weldName === weld
+                  ).length;
+                  const isModified =
+                    spec.wallThickness !== masterWallThickness ||
+                    spec.cladThickness !== masterCladThickness ||
+                    spec.jointDegrees !== masterJointDegrees;
+
+                  return (
+                    <div
+                      key={weld}
+                      className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
+                    >
+                      {/* Weld Identification */}
+                      <div className="w-44 shrink-0 flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs bg-indigo-50 text-indigo-800 border border-indigo-200 px-2.5 py-1 rounded-md">
+                          {getJointDisplayName(weld)}
+                        </span>
+                        {jointAliases[weld] && (
+                          <span className="text-[10px] font-mono text-slate-400">({weld})</span>
+                        )}
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {flawCount} {flawCount === 1 ? "flaw" : "flaws"}
+                        </span>
+                      </div>
+
+                      {/* Three Inputs */}
+                      <div className="flex-1 grid grid-cols-3 gap-4 max-w-xl">
+                        {/* Wall Thickness */}
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="1"
+                            max="200"
+                            value={spec.wallThickness}
+                            onChange={(e) => handleUpdateWeldSpec(weld, "wallThickness", e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2.5 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-7 text-right"
+                          />
+                          <span className="absolute right-2 text-[10px] text-slate-400 font-semibold pointer-events-none">mm</span>
+                        </div>
+
+                        {/* Clad Thickness */}
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="30"
+                            value={spec.cladThickness}
+                            onChange={(e) => handleUpdateWeldSpec(weld, "cladThickness", e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2.5 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-7 text-right"
+                          />
+                          <span className="absolute right-2 text-[10px] text-slate-400 font-semibold pointer-events-none">mm</span>
+                        </div>
+
+                        {/* Joint Degrees */}
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            step="1"
+                            min="10"
+                            max="120"
+                            value={spec.jointDegrees}
+                            onChange={(e) => handleUpdateWeldSpec(weld, "jointDegrees", e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2.5 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-6 text-right"
+                          />
+                          <span className="absolute right-2 text-[10px] text-slate-400 font-semibold pointer-events-none">°</span>
+                        </div>
+                      </div>
+
+                      {/* Reset to Master Action */}
+                      <div className="w-20 text-right shrink-0">
+                        {isModified ? (
+                          <button
+                            type="button"
+                            onClick={() => handleResetWeldToMaster(weld)}
+                            className="text-[11px] font-bold text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
+                            title="Reset this weld to master batch values"
+                          >
+                            Reset
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-medium">Default</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -955,20 +1257,20 @@ export default function ImportWizardPage() {
               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
                 <span className="font-bold text-slate-600 flex items-center gap-1">
                   <Sliders size={12} className="text-sky-600" />
-                  <span>Specs:</span>
+                  <span>{effectiveWeldKey ? getJointDisplayName(effectiveWeldKey) : "Weld"} Specs:</span>
                 </span>
                 <span className="font-mono text-[11px] text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                  Wall: <strong>{nominalWallThickness}mm</strong>
+                  Wall: <strong>{activeSpec.wallThickness}mm</strong>
                 </span>
                 <span className="font-mono text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                  Clad: <strong>{cladThickness}mm</strong>
+                  Clad: <strong>{activeSpec.cladThickness}mm</strong>
                 </span>
                 <span className="font-mono text-[11px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
-                  Groove: <strong>{jointDegrees}°</strong>
+                  Groove: <strong>{activeSpec.jointDegrees}°</strong>
                 </span>
                 <button
                   type="button"
-                  onClick={() => setShowSpecsModal(true)}
+                  onClick={openSpecsModal}
                   className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors cursor-pointer"
                   title="Tune drum wall thickness, clad thickness, and joint degrees"
                 >
@@ -1159,9 +1461,9 @@ export default function ImportWizardPage() {
                   onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
                   drumName={selectedDrums.includes("ALL") ? "All Coke Drums" : selectedDrums.map(d => `Coke Drum ${d}`).join(", ")}
                   weldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.map(w => getJointDisplayName(w)).join(", ")}
-                  nominalWallThickness={nominalWallThickness}
-                  cladThickness={cladThickness}
-                  jointDegrees={jointDegrees}
+                  nominalWallThickness={activeSpec.wallThickness}
+                  cladThickness={activeSpec.cladThickness}
+                  jointDegrees={activeSpec.jointDegrees}
                   repairZones={repairZones}
                   layoutMode={layoutMode}
                 />
@@ -1173,18 +1475,18 @@ export default function ImportWizardPage() {
                   selectedFlawCode={activeFlaw?.code}
                   onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
                   repairZones={repairZones}
-                  nominalWallThickness={nominalWallThickness}
-                  cladThickness={cladThickness}
-                  jointDegrees={jointDegrees}
+                  nominalWallThickness={activeSpec.wallThickness}
+                  cladThickness={activeSpec.cladThickness}
+                  jointDegrees={activeSpec.jointDegrees}
                 />
               )}
 
               {visualizerTab === "BEVEL_SLICE" && activeFlaw && (
                 <WeldBevelSScanProfile
                   indication={activeFlaw}
-                  nominalWallThickness={nominalWallThickness}
-                  cladThickness={cladThickness}
-                  jointDegrees={jointDegrees}
+                  nominalWallThickness={activeSpec.wallThickness}
+                  cladThickness={activeSpec.cladThickness}
+                  jointDegrees={activeSpec.jointDegrees}
                 />
               )}
 
@@ -1193,7 +1495,7 @@ export default function ImportWizardPage() {
                   measurements={getMeasurementsForFlaw(activeFlaw)}
                   flawCode={activeFlaw.code}
                   locationInfo={`${activeFlaw.drumName} — ${getJointDisplayName(activeFlaw.weldName)} @ ${activeFlaw.locationText}`}
-                  nominalThickness={nominalWallThickness}
+                  nominalThickness={activeSpec.wallThickness}
                 />
               )}
 
@@ -1391,7 +1693,9 @@ export default function ImportWizardPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-base">Weld &amp; Drum Geometry Specifications</h3>
-                  <p className="text-xs text-slate-500">Live parameter tuning for cross-sections &amp; ring maps</p>
+                  <p className="text-xs text-slate-500">
+                    {effectiveWeldKey ? `Tuning ${getJointDisplayName(effectiveWeldKey)} cross-sections & maps` : "Live parameter tuning for cross-sections & ring maps"}
+                  </p>
                 </div>
               </div>
               <button
@@ -1408,17 +1712,17 @@ export default function ImportWizardPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Nominal Wall Thickness (mm)
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="relative flex items-center">
                   <input
                     type="number"
                     step="0.5"
-                    min="5"
-                    max="150"
-                    value={nominalWallThickness}
-                    onChange={(e) => setNominalWallThickness(Math.max(1, parseFloat(e.target.value) || 32.0))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    min="1"
+                    max="200"
+                    value={specModalWall}
+                    onChange={(e) => setSpecModalWall(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-8 text-right"
                   />
-                  <span className="text-xs font-bold text-slate-500 shrink-0">mm</span>
+                  <span className="absolute right-3 text-xs font-bold text-slate-400 pointer-events-none">mm</span>
                 </div>
                 <span className="text-[10px] text-slate-400">Through-thickness shell wall dimension (Default: 32.0 mm)</span>
               </div>
@@ -1427,17 +1731,17 @@ export default function ImportWizardPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Cladding Thickness (mm)
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="relative flex items-center">
                   <input
                     type="number"
                     step="0.1"
                     min="0"
                     max="30"
-                    value={cladThickness}
-                    onChange={(e) => setCladThickness(Math.max(0, parseFloat(e.target.value) || 0))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    value={specModalClad}
+                    onChange={(e) => setSpecModalClad(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-8 text-right"
                   />
-                  <span className="text-xs font-bold text-slate-500 shrink-0">mm</span>
+                  <span className="absolute right-3 text-xs font-bold text-slate-400 pointer-events-none">mm</span>
                 </div>
                 <span className="text-[10px] text-slate-400">Internal stainless steel clad thickness (Default: 3.0 mm)</span>
               </div>
@@ -1446,29 +1750,63 @@ export default function ImportWizardPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Welding Joint Degrees (Total Groove Angle °)
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="relative flex items-center">
                   <input
                     type="number"
                     step="1"
-                    min="20"
+                    min="10"
                     max="120"
-                    value={jointDegrees}
-                    onChange={(e) => setJointDegrees(Math.max(10, parseFloat(e.target.value) || 60.0))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    value={specModalDegrees}
+                    onChange={(e) => setSpecModalDegrees(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-7 text-right"
                   />
-                  <span className="text-xs font-bold text-slate-500 shrink-0">deg</span>
+                  <span className="absolute right-3 text-xs font-bold text-slate-400 pointer-events-none">°</span>
                 </div>
-                <span className="text-[10px] text-slate-400">Total included groove angle (Default: 60° / 30° bevel per side)</span>
+                <span className="text-[10px] text-slate-400">Total included groove angle (e.g. 60° total / 30° per side)</span>
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex justify-end">
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-2">
+              {effectiveWeldKey && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const wall = specModalWall.trim() || "32.0";
+                    const clad = specModalClad.trim() || "3.0";
+                    const deg = specModalDegrees.trim() || "60.0";
+                    handleUpdateWeldSpec(effectiveWeldKey, "wallThickness", wall);
+                    handleUpdateWeldSpec(effectiveWeldKey, "cladThickness", clad);
+                    handleUpdateWeldSpec(effectiveWeldKey, "jointDegrees", deg);
+                    setShowSpecsModal(false);
+                  }}
+                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+                >
+                  Update {getJointDisplayName(effectiveWeldKey)} Only
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setShowSpecsModal(false)}
-                className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+                onClick={() => {
+                  const wall = specModalWall.trim() || "32.0";
+                  const clad = specModalClad.trim() || "3.0";
+                  const deg = specModalDegrees.trim() || "60.0";
+                  setMasterWallThickness(wall);
+                  setMasterCladThickness(clad);
+                  setMasterJointDegrees(deg);
+                  setNominalWallThickness(parseFloat(wall) || 32.0);
+                  setCladThickness(parseFloat(clad) || 3.0);
+                  setJointDegrees(parseFloat(deg) || 60.0);
+
+                  const updated: Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string }> = {};
+                  availableWeldsForSelectedDrums.forEach((w) => {
+                    updated[w] = { wallThickness: wall, cladThickness: clad, jointDegrees: deg };
+                  });
+                  setWeldSpecs((prev) => ({ ...prev, ...updated }));
+                  setShowSpecsModal(false);
+                }}
+                className="w-full sm:w-auto bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
               >
-                Apply &amp; Update Visuals
+                Apply to All Welds
               </button>
             </div>
           </div>

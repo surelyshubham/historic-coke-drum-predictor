@@ -64,6 +64,8 @@ export default function ReportsPage() {
   // User Configurable Job Parameters (Nominal Wall Thickness & Vessel Outer Diameter)
   const [customThicknessInput, setCustomThicknessInput] = useState<string>("");
   const [customDiameterInput, setCustomDiameterInput] = useState<string>("");
+  const [customCladInput, setCustomCladInput] = useState<string>("");
+  const [customJointDegreesInput, setCustomJointDegreesInput] = useState<string>("");
 
   // Uploaded Excel State
   const [uploadedExcelName, setUploadedExcelName] = useState<string | null>(null);
@@ -686,6 +688,14 @@ export default function ReportsPage() {
     ? Number(customDiameterInput)
     : (payload?.vesselInfo.diameter ?? 8.97);
 
+  const effectiveCladThickness = customCladInput !== "" && !isNaN(Number(customCladInput)) && Number(customCladInput) >= 0
+    ? Number(customCladInput)
+    : (activeVaultDataset?.cladThickness ?? 3.0);
+
+  const effectiveJointDegrees = customJointDegreesInput !== "" && !isNaN(Number(customJointDegreesInput)) && Number(customJointDegreesInput) > 0
+    ? Number(customJointDegreesInput)
+    : (activeVaultDataset?.jointDegrees ?? 60.0);
+
   // Derived Vessel Dimensions
   const innerDiameterM = Number((effectiveDiameter - (2 * effectiveNominalThickness) / 1000).toFixed(3));
   const innerDiameterMm = Number((innerDiameterM * 1000).toFixed(0));
@@ -1038,6 +1048,38 @@ export default function ReportsPage() {
               </div>
             </div>
 
+            <div className="flex items-center gap-1.5">
+              <label className="font-semibold text-slate-700">Clad (t_clad):</label>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="50"
+                  value={customCladInput !== "" ? customCladInput : effectiveCladThickness}
+                  onChange={(e) => setCustomCladInput(e.target.value)}
+                  className="w-16 px-2 py-1 border border-slate-300 rounded font-mono font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 text-xs text-right pr-6"
+                />
+                <span className="absolute right-1.5 text-[11px] text-slate-400 font-semibold pointer-events-none">mm</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <label className="font-semibold text-slate-700">Groove Angle:</label>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  step="1"
+                  min="10"
+                  max="120"
+                  value={customJointDegreesInput !== "" ? customJointDegreesInput : effectiveJointDegrees}
+                  onChange={(e) => setCustomJointDegreesInput(e.target.value)}
+                  className="w-16 px-2 py-1 border border-slate-300 rounded font-mono font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 text-xs text-right pr-4"
+                />
+                <span className="absolute right-1.5 text-[11px] text-slate-400 font-semibold pointer-events-none">°</span>
+              </div>
+            </div>
+
             <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded px-2.5 py-1 text-slate-700 shadow-2xs">
               <span className="text-slate-500 font-medium">Inner Dia (ID):</span>
               <span className="font-mono font-bold text-emerald-800">{innerDiameterM.toFixed(3)} m</span>
@@ -1049,12 +1091,14 @@ export default function ReportsPage() {
               <span className="font-mono font-bold text-sky-800">~{circumferenceM} m</span>
             </div>
 
-            {(customThicknessInput !== "" || customDiameterInput !== "") && (
+            {(customThicknessInput !== "" || customDiameterInput !== "" || customCladInput !== "" || customJointDegreesInput !== "") && (
               <button
                 type="button"
                 onClick={() => {
                   setCustomThicknessInput("");
                   setCustomDiameterInput("");
+                  setCustomCladInput("");
+                  setCustomJointDegreesInput("");
                 }}
                 className="text-[11px] font-semibold text-sky-700 hover:text-sky-900 underline ml-1 cursor-pointer"
               >
@@ -1421,93 +1465,119 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                {/* 2.X.1 360° Polar Circumferential Ring Map for this weld */}
-                {sections.polarRingMap && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
-                        2.{weldIdx + 1}.1 360° Circumferential Map — Seam {weldName}
-                      </h5>
-                      <span className="text-[11px] text-slate-500">North 0° • Slots L1–L28 • Side-by-Side Defect Table</span>
-                    </div>
+                {(() => {
+                  const weldSpec = activeVaultDataset?.weldSpecs?.[weldName];
+                  const seamNominalThickness = customThicknessInput !== "" && !isNaN(Number(customThicknessInput)) && Number(customThicknessInput) > 0
+                    ? Number(customThicknessInput)
+                    : (weldSpec?.nominalWallThickness ?? effectiveNominalThickness);
 
-                    <div id={`report-polar-ring-${weldName}`}>
-                      <PolarCircumferentialRingMap
-                        indications={weldTracked}
-                        selectedFlawCode={weldSelectedInd?.code}
-                        onSelectFlaw={(pi) => {
-                          const found = displayIndications.find((i) => i.code === pi.code);
-                          if (found) setSelectedIndicationId(found.id);
-                        }}
-                        drumName={vesselInfo.name}
-                        weldName={weldName}
-                        totalCircumferenceMm={circumferenceMm}
-                        nominalWallThickness={effectiveNominalThickness}
-                      />
-                    </div>
-                  </div>
-                )}
+                  const seamCladThickness = customCladInput !== "" && !isNaN(Number(customCladInput)) && Number(customCladInput) >= 0
+                    ? Number(customCladInput)
+                    : (weldSpec?.cladThickness ?? effectiveCladThickness);
 
-                {/* 2.X.2 Weld Width Plan View with Side-by-Side Defect Table */}
-                {sections.weldWidthPlan && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
-                        2.{weldIdx + 1}.2 Weld Width with Indications Plan View — Seam {weldName}
-                      </h5>
-                      <span className="text-[11px] text-slate-500">Solid filled indication bounding boxes • Side-by-Side Table</span>
-                    </div>
+                  const seamJointDegrees = customJointDegreesInput !== "" && !isNaN(Number(customJointDegreesInput)) && Number(customJointDegreesInput) > 0
+                    ? Number(customJointDegreesInput)
+                    : (weldSpec?.jointDegrees ?? effectiveJointDegrees);
 
-                    <div id={`report-weld-plan-${weldName}`}>
-                      <WeldWidthPlanPlot
-                        indications={weldTracked}
-                        selectedFlawCode={weldSelectedInd?.code}
-                        onSelectFlaw={(pi) => {
-                          const found = displayIndications.find((i) => i.code === pi.code);
-                          if (found) setSelectedIndicationId(found.id);
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
+                  return (
+                    <>
+                      {/* 2.X.1 360° Polar Circumferential Ring Map for this weld */}
+                      {sections.polarRingMap && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                            <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                              2.{weldIdx + 1}.1 360° Circumferential Map — Seam {weldName}
+                            </h5>
+                            <span className="text-[11px] text-slate-500">North 0° • Slots L1–L28 • Side-by-Side Defect Table</span>
+                          </div>
 
-                {/* 2.X.3 Through-Thickness Bevel S-Scan Profile */}
-                {sections.bevelSScan && weldSelectedInd && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                      <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
-                        2.{weldIdx + 1}.3 Through-Thickness Bevel S-Scan Profile — Seam {weldName} (Flaw {weldSelectedInd.code})
-                      </h5>
-                      <span className="text-[11px] text-slate-500">
-                        Nominal Wall: <strong>{effectiveNominalThickness} mm</strong> • OD (Top) / ID (Bottom) Transverse Cut
-                      </span>
-                    </div>
+                          <div id={`report-polar-ring-${weldName}`}>
+                            <PolarCircumferentialRingMap
+                              indications={weldTracked}
+                              selectedFlawCode={weldSelectedInd?.code}
+                              onSelectFlaw={(pi) => {
+                                const found = displayIndications.find((i) => i.code === pi.code);
+                                if (found) setSelectedIndicationId(found.id);
+                              }}
+                              drumName={vesselInfo.name}
+                              weldName={weldName}
+                              totalCircumferenceMm={circumferenceMm}
+                              nominalWallThickness={seamNominalThickness}
+                              cladThickness={seamCladThickness}
+                              jointDegrees={seamJointDegrees}
+                            />
+                          </div>
+                        </div>
+                      )}
 
-                    <div id={`report-bevel-sscan-${weldName}`} className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs">
-                      <WeldBevelSScanProfile
-                        indication={
-                          weldTracked.find((t) => t.code === weldSelectedInd.code) ||
-                          weldTracked[0] ||
-                          ({
-                            code: weldSelectedInd.code,
-                            weldName: weldName,
-                            drumName: vesselInfo.name,
-                            circumferentialPosition: weldSelectedInd.circumferentialPosition,
-                            latestLength: weldSelectedInd.currentLength,
-                            latestDepth: weldSelectedInd.currentDepth,
-                            latestDepthId: weldSelectedInd.currentDepthId,
-                            latestDepthOd: weldSelectedInd.currentDepthOd,
-                            weldPosition: weldSelectedInd.weldPosition,
-                          } as any)
-                        }
-                        nominalWallThickness={effectiveNominalThickness}
-                      />
-                    </div>
-                  </div>
-                )}
+                      {/* 2.X.2 Weld Width Plan View with Side-by-Side Defect Table */}
+                      {sections.weldWidthPlan && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                            <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                              2.{weldIdx + 1}.2 Weld Width with Indications Plan View — Seam {weldName}
+                            </h5>
+                            <span className="text-[11px] text-slate-500">Solid filled indication bounding boxes • Side-by-Side Table</span>
+                          </div>
+
+                          <div id={`report-weld-plan-${weldName}`}>
+                            <WeldWidthPlanPlot
+                              indications={weldTracked}
+                              selectedFlawCode={weldSelectedInd?.code}
+                              onSelectFlaw={(pi) => {
+                                const found = displayIndications.find((i) => i.code === pi.code);
+                                if (found) setSelectedIndicationId(found.id);
+                              }}
+                              nominalWallThickness={seamNominalThickness}
+                              cladThickness={seamCladThickness}
+                              jointDegrees={seamJointDegrees}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2.X.3 Through-Thickness Bevel S-Scan Profile */}
+                      {sections.bevelSScan && weldSelectedInd && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                            <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                              2.{weldIdx + 1}.3 Through-Thickness Bevel S-Scan Profile — Seam {weldName} (Flaw {weldSelectedInd.code})
+                            </h5>
+                            <span className="text-[11px] text-slate-500">
+                              Nominal Wall: <strong>{seamNominalThickness} mm</strong> • OD (Top) / ID (Bottom) Transverse Cut
+                            </span>
+                          </div>
+
+                          <div id={`report-bevel-sscan-${weldName}`} className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs">
+                            <WeldBevelSScanProfile
+                              indication={
+                                weldTracked.find((t) => t.code === weldSelectedInd.code) ||
+                                weldTracked[0] ||
+                                ({
+                                  code: weldSelectedInd.code,
+                                  weldName: weldName,
+                                  drumName: vesselInfo.name,
+                                  circumferentialPosition: weldSelectedInd.circumferentialPosition,
+                                  latestLength: weldSelectedInd.currentLength,
+                                  latestDepth: weldSelectedInd.currentDepth,
+                                  latestDepthId: weldSelectedInd.currentDepthId,
+                                  latestDepthOd: weldSelectedInd.currentDepthOd,
+                                  weldPosition: weldSelectedInd.weldPosition,
+                                } as any)
+                              }
+                              nominalWallThickness={seamNominalThickness}
+                              cladThickness={seamCladThickness}
+                              jointDegrees={seamJointDegrees}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* 2.X.4 Historical vs. Current Inspection Comparison Graph */}
                 <div className="space-y-3">

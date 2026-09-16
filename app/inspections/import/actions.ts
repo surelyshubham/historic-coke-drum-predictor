@@ -251,6 +251,7 @@ export async function commitMatrixDatasetAction(payload: {
   nominalWallThickness?: number;
   cladThickness?: number;
   jointDegrees?: number;
+  weldSpecs?: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number }>;
 }) {
   const session = await auth();
   if (session?.user?.role !== "MASTER") {
