@@ -211,8 +211,7 @@ export function RepairAnomalyModal({
                     </div>
 
                     <p className="text-slate-700 leading-relaxed">
-                      In the last scan (<strong>{currentAnomaly.lastObservedCampaign}</strong>), an indication with length{" "}
-                      <strong>{currentAnomaly.detectedLengthMm} mm</strong> was detected at this position. On the latest scan update (
+                      In the last scan (<strong>{currentAnomaly.lastObservedCampaign}</strong>), an indication was present starting from <strong>{currentAnomaly.approximateLocationMm} mm</strong> (from the 0° point) and extending to <strong>{currentAnomaly.approximateLocationMm + currentAnomaly.detectedLengthMm} mm</strong>. On the latest scan update (
                       <strong>{currentAnomaly.missingInCampaign}</strong>), this indication is <strong>no longer detected</strong>.
                     </p>
 
