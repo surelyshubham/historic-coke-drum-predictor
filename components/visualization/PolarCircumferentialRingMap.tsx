@@ -12,6 +12,8 @@ interface PolarCircumferentialRingMapProps {
   weldName?: string;
   totalCircumferenceMm?: number; // default ~28180 mm (28.2m)
   nominalWallThickness?: number; // default 32.0 mm
+  cladThickness?: number; // default 3.0 mm
+  jointDegrees?: number; // default 60.0 degrees (total groove angle)
   repairZones?: RepairZone[];
   layoutMode?: "SPLIT" | "CANVAS_ONLY" | "TABLE_ONLY";
 }
@@ -75,6 +77,8 @@ export function PolarCircumferentialRingMap({
   weldName = "Weld Seam",
   totalCircumferenceMm = 28180,
   nominalWallThickness = 32.0,
+  cladThickness = 3.0,
+  jointDegrees = 60.0,
   repairZones = [],
   layoutMode = "SPLIT",
 }: PolarCircumferentialRingMapProps) {
@@ -100,6 +104,12 @@ export function PolarCircumferentialRingMap({
   const wallThicknessPx = outerRadius - innerRadius; // 42 px = nominalWallThickness (32.0 mm)
   const midRadius = (outerRadius + innerRadius) / 2;
   const slotLabelRadius = 172; // Inside the inner circle
+
+  // Clad Layer & Bevel Root Geometry
+  const effClad = Math.max(0, cladThickness ?? 3.0);
+  const cladRadius = innerRadius + (effClad / nominalWallThickness) * wallThicknessPx;
+  const rootDepthMm = Number((11.5 * (nominalWallThickness / 32.0)).toFixed(1));
+  const rootRadius = innerRadius + (rootDepthMm / nominalWallThickness) * wallThicknessPx;
 
   // 28 Longitudinal Slots (L1 to L28) around the full 360° circumference
   const TOTAL_SLOTS = 28;
@@ -340,7 +350,7 @@ export function PolarCircumferentialRingMap({
             </span>
           </h3>
           <p className="text-[11px] text-slate-500 mt-1">
-            Coke Drum <strong>{drumName}</strong> ({weldName}) with 28 longitudinal slots (L1–L28) and depth-proportional indications on {nominalWallThickness.toFixed(1)} mm wall
+            Coke Drum <strong>{drumName}</strong> ({weldName}) with 28 longitudinal slots (L1–L28) • Wall: <strong>{nominalWallThickness.toFixed(1)} mm</strong> • Clad: <strong>{effClad.toFixed(1)} mm</strong> • Bevel Groove: <strong>{jointDegrees}°</strong>
           </p>
         </div>
 
@@ -492,6 +502,29 @@ export function PolarCircumferentialRingMap({
             fill="none"
             stroke="#0f172a"
             strokeWidth="2"
+          />
+
+          {/* Internal Cladding Layer (Dotted Blue Concentric Circle matching S-Scan Profile - #0284c7) */}
+          <circle
+            cx={center}
+            cy={center}
+            r={cladRadius}
+            fill="none"
+            stroke="#0284c7"
+            strokeWidth="1.8"
+            strokeDasharray="3 3"
+          />
+
+          {/* Weld Bevel Root Guide (Subtle dashed concentric line) */}
+          <circle
+            cx={center}
+            cy={center}
+            r={rootRadius}
+            fill="none"
+            stroke="#475569"
+            strokeWidth="1"
+            strokeDasharray="2 3"
+            opacity="0.45"
           />
 
           {/* 28 Longitudinal Slot Dividers & Inner L1-L28 Slot Badges */}
@@ -788,6 +821,38 @@ export function PolarCircumferentialRingMap({
                   );
                 })}
 
+                {/* Bevel Boundary Overlay Lines — Rendered directly on top of ("upside") the marked defect patch */}
+                <g className="defect-bevel-overlay pointer-events-none">
+                  {/* Start of indication bevel boundary line across wall */}
+                  <line
+                    x1={center + innerRadius * Math.cos(startRad)}
+                    y1={center + innerRadius * Math.sin(startRad)}
+                    x2={center + outerRadius * Math.cos(startRad)}
+                    y2={center + outerRadius * Math.sin(startRad)}
+                    stroke="#0f172a"
+                    strokeWidth="1.5"
+                    strokeDasharray="2 2"
+                  />
+                  {/* End of indication bevel boundary line across wall */}
+                  <line
+                    x1={center + innerRadius * Math.cos(endRad)}
+                    y1={center + innerRadius * Math.sin(endRad)}
+                    x2={center + outerRadius * Math.cos(endRad)}
+                    y2={center + outerRadius * Math.sin(endRad)}
+                    stroke="#0f172a"
+                    strokeWidth="1.5"
+                    strokeDasharray="2 2"
+                  />
+                  {/* Clad dotted arc crossing over the marked defect */}
+                  <path
+                    d={describeAnticlockwiseArc(center, center, cladRadius, startRad, endRad)}
+                    fill="none"
+                    stroke="#0284c7"
+                    strokeWidth="1.8"
+                    strokeDasharray="3 3"
+                  />
+                </g>
+
 
 
                 {/* Clean Numeric Badge on inner/outer side */}
@@ -947,6 +1012,11 @@ export function PolarCircumferentialRingMap({
           <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-emerald-300 bg-emerald-50/50">
             <span className="w-3.5 h-3.5 rounded-xs inline-block border border-slate-600/40" style={{ backgroundColor: "#4E9A06" }}></span>
             <span className="font-bold text-emerald-950">Replaced / Repaired Steel</span>
+          </span>
+
+          <span className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded border border-blue-300">
+            <span className="w-5 h-0 border-t-2 border-dashed border-sky-600 inline-block"></span>
+            <span className="font-bold text-sky-900">Clad Layer ({effClad.toFixed(1)}mm ID)</span>
           </span>
 
           <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">

@@ -11,14 +11,24 @@ interface WeldWidthPlanPlotProps {
   weldCapHalfWidthMm?: number; // default 3 mm (+3 to -3)
   hazHalfWidthMm?: number; // default 6 mm (+6 to -6)
   repairZones?: RepairZone[];
+  nominalWallThickness?: number;
+  cladThickness?: number;
+  jointDegrees?: number;
 }
 
 interface MiniBevelSScanPreviewProps {
   flaw: TrackedPhysicalIndication;
   nominalWall?: number;
+  cladThickness?: number;
+  jointDegrees?: number;
 }
 
-function MiniBevelSScanPreview({ flaw, nominalWall = 32.0 }: MiniBevelSScanPreviewProps) {
+function MiniBevelSScanPreview({
+  flaw,
+  nominalWall = 32.0,
+  cladThickness = 3.0,
+  jointDegrees = 60.0,
+}: MiniBevelSScanPreviewProps) {
   const effDepth = flaw.latestDepth || 3.0;
   const depthPct = Math.min(100, Math.round((effDepth / nominalWall) * 100));
   const remainingWall = Math.max(0, nominalWall - effDepth);
@@ -32,12 +42,22 @@ function MiniBevelSScanPreview({ flaw, nominalWall = 32.0 }: MiniBevelSScanPrevi
   const pBottom = 92;
   const pThick = pBottom - pTop;
   const wCenter = (pLeft + pRight) / 2;
-  const rootY = pBottom - (11.5 / nominalWall) * pThick;
+  const rootDepthMm = 11.5 * (nominalWall / 32.0);
+  const rootY = pBottom - (rootDepthMm / nominalWall) * pThick;
 
-  const odTT = wCenter - (22 / 55) * ((pRight - pLeft) / 2);
-  const odBT = wCenter + (22 / 55) * ((pRight - pLeft) / 2);
-  const idTT = wCenter - (11 / 55) * ((pRight - pLeft) / 2);
-  const idBT = wCenter + (11 / 55) * ((pRight - pLeft) / 2);
+  const grooveAngle = jointDegrees || 60.0;
+  const halfAngleRad = ((grooveAngle / 2) * Math.PI) / 180;
+  const odDepthMm = nominalWall - rootDepthMm;
+  const odHalfWidthMm = 1.8 + odDepthMm * Math.tan(halfAngleRad);
+  const idHalfWidthMm = 1.8 + rootDepthMm * Math.tan(halfAngleRad);
+
+  const odTT = wCenter - (odHalfWidthMm / 55) * ((pRight - pLeft) / 2);
+  const odBT = wCenter + (odHalfWidthMm / 55) * ((pRight - pLeft) / 2);
+  const idTT = wCenter - (idHalfWidthMm / 55) * ((pRight - pLeft) / 2);
+  const idBT = wCenter + (idHalfWidthMm / 55) * ((pRight - pLeft) / 2);
+
+  const effClad = Math.max(0, cladThickness ?? 3.0);
+  const cladHeight = (effClad / nominalWall) * pThick;
 
   const crackDepthPx = (Math.min(nominalWall, effDepth) / nominalWall) * pThick;
   const originX = isBT ? (isOD ? odBT : idBT) : (isOD ? odTT : idTT);
@@ -60,9 +80,9 @@ function MiniBevelSScanPreview({ flaw, nominalWall = 32.0 }: MiniBevelSScanPrevi
           />
           <rect
             x={pLeft}
-            y={pBottom - (3.0 / nominalWall) * pThick}
+            y={pBottom - cladHeight}
             width={pRight - pLeft}
-            height={(3.0 / nominalWall) * pThick}
+            height={cladHeight}
             fill="#38bdf8"
             fillOpacity="0.18"
             stroke="#0284c7"
@@ -108,6 +128,14 @@ function MiniBevelSScanPreview({ flaw, nominalWall = 32.0 }: MiniBevelSScanPrevi
           <circle cx={originX} cy={originY} r="2.5" fill={isOD ? "#c2410c" : "#b91c1c"} />
           <circle cx={tipX} cy={tipY} r="6" fill="#f87171" fillOpacity="0.4" />
           <circle cx={tipX} cy={tipY} r="2" fill="#991b1b" />
+
+          {/* Bevel Fusion Lines Top Overlay — upside the marked area */}
+          <line x1={odTT} y1={pTop} x2={wCenter - 2} y2={rootY} stroke="#334155" strokeWidth="1.2" />
+          <line x1={odBT} y1={pTop} x2={wCenter + 2} y2={rootY} stroke="#334155" strokeWidth="1.2" />
+          <line x1={idTT} y1={pBottom} x2={wCenter - 2} y2={rootY} stroke="#334155" strokeWidth="1.2" />
+          <line x1={idBT} y1={pBottom} x2={wCenter + 2} y2={rootY} stroke="#334155" strokeWidth="1.2" />
+          <line x1={pLeft} y1={pBottom - cladHeight} x2={pRight} y2={pBottom - cladHeight} stroke="#0284c7" strokeWidth="0.8" strokeDasharray="2 2" />
+
           <text
             x={tipX > wCenter ? tipX - 8 : tipX + 8}
             y={isOD ? tipY + 8 : tipY - 4}
@@ -150,6 +178,9 @@ export function WeldWidthPlanPlot({
   weldCapHalfWidthMm = 3,
   hazHalfWidthMm = 6,
   repairZones = [],
+  nominalWallThickness = 32.0,
+  cladThickness = 3.0,
+  jointDegrees = 60.0,
 }: WeldWidthPlanPlotProps) {
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null);
   const [hoverCursor, setHoverCursor] = useState<{
@@ -812,7 +843,12 @@ export function WeldWidthPlanPlot({
 
             {/* If Hovering over an Indication: Render Live Double-V S-Scan Profile Cross-Section */}
             {hoverCursor.hoveredFlaw ? (
-              <MiniBevelSScanPreview flaw={hoverCursor.hoveredFlaw} nominalWall={32.0} />
+              <MiniBevelSScanPreview
+                flaw={hoverCursor.hoveredFlaw}
+                nominalWall={nominalWallThickness}
+                cladThickness={cladThickness}
+                jointDegrees={jointDegrees}
+              />
             ) : (
               <div className="space-y-1">
                 <div className="flex justify-between">
@@ -864,7 +900,7 @@ export function WeldWidthPlanPlot({
                 const isSelected = selectedFlawCode === pi.code;
                 const isHovered = hoverCursor?.hoveredFlaw?.code === pi.code;
                 const effDepth = pi.latestDepth || 2.5;
-                const pct = Math.round((effDepth / 32.0) * 100);
+                const pct = Math.round((effDepth / (nominalWallThickness || 32.0)) * 100);
                 const depthGrade = getDepthGrade(effDepth);
                 const offset = getFlawOffset(pi);
 

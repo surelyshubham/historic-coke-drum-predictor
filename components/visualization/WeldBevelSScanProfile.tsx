@@ -6,11 +6,15 @@ import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 interface WeldBevelSScanProfileProps {
   indication: TrackedPhysicalIndication;
   nominalWallThickness?: number; // default 32 mm
+  cladThickness?: number; // default 3.0 mm
+  jointDegrees?: number; // default 60.0 degrees (total groove angle)
 }
 
 export function WeldBevelSScanProfile({
   indication,
   nominalWallThickness = 32.0,
+  cladThickness = 3.0,
+  jointDegrees = 60.0,
 }: WeldBevelSScanProfileProps) {
   const [hoverCursor, setHoverCursor] = useState<{
     xPx: number;
@@ -47,7 +51,7 @@ export function WeldBevelSScanProfile({
   const weldCenterX = (plateLeft + plateRight) / 2; // 305 px (0 mm centerline)
 
   // Coordinate Mapping:
-  // Horizontal (X): Offset from weld centerline (-55 mm at plateLeft to +55 mm at plateRight)
+  // Horizontal (X): Offset from weld centerline
   // Vertical (Y): Through-wall depth (plateBottom at 0 mm ID to plateTop at nominalWallThickness OD)
   const xSpanMm = 55.0; // Half-width span (from centerline to edge)
 
@@ -67,20 +71,30 @@ export function WeldBevelSScanProfile({
     return ((plateBottom - yPx) / plateThicknessPx) * nominalWallThickness;
   };
 
-  // Double-V Bevel Geometry (dynamically scaled to nominal wall thickness):
+  // Double-V Bevel Geometry (dynamically scaled to nominal wall thickness and joint degrees):
+  const grooveAngle = jointDegrees || 60.0;
+  const halfAngleRad = ((grooveAngle / 2) * Math.PI) / 180;
+
   // Root face at ~11.5 mm from ID scaled proportionally
   const rootDepthMm = Number((11.5 * (nominalWallThickness / 32.0)).toFixed(1));
   const rootY = scaleYFromId(rootDepthMm);
+  const rootGapHalfMm = 1.8;
 
-  // ID Side (Bottom Edge): Narrower bevel (-11 mm to +11 mm)
-  const idBevelHalfWidthMm = 11.0;
+  // OD Side (Top Edge): Bevel width computed from total groove angle
+  const odDepthMm = nominalWallThickness - rootDepthMm;
+  const odBevelHalfWidthMm = Number((rootGapHalfMm + odDepthMm * Math.tan(halfAngleRad)).toFixed(1));
+  const odTtX = scaleX(-odBevelHalfWidthMm);
+  const odBtX = scaleX(odBevelHalfWidthMm);
+
+  // ID Side (Bottom Edge): Bevel width computed from total groove angle
+  const idDepthMm = rootDepthMm;
+  const idBevelHalfWidthMm = Number((rootGapHalfMm + idDepthMm * Math.tan(halfAngleRad)).toFixed(1));
   const idTtX = scaleX(-idBevelHalfWidthMm);
   const idBtX = scaleX(idBevelHalfWidthMm);
 
-  // OD Side (Top Edge): Wider bevel (-22 mm to +22 mm)
-  const odBevelHalfWidthMm = 22.0;
-  const odTtX = scaleX(-odBevelHalfWidthMm);
-  const odBtX = scaleX(odBevelHalfWidthMm);
+  const effCladThickness = Math.max(0, cladThickness ?? 3.0);
+  const cladY = scaleYFromId(effCladThickness);
+  const cladHeightPx = (effCladThickness / nominalWallThickness) * plateThicknessPx;
 
   // Dynamic Defect Parameters from Indication (Extracting both ID and OD measurements)
   const indAny = indication as unknown as Record<string, unknown>;
@@ -243,6 +257,12 @@ export function WeldBevelSScanProfile({
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800 uppercase tracking-wide">
               {nominalWallThickness.toFixed(1)} mm Wall
             </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 uppercase tracking-wide">
+              Clad: {effCladThickness.toFixed(1)} mm
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 uppercase tracking-wide">
+              Bevel: {grooveAngle.toFixed(0)}° Groove
+            </span>
             {cladStatus && (
               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cladStatus === "INCLUDING" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
                 Clad: {cladStatus}
@@ -317,12 +337,12 @@ export function WeldBevelSScanProfile({
             strokeWidth="3.2"
           />
 
-          {/* Internal Stainless Steel Clad Layer (~3.0 mm along ID Bottom Surface) */}
+          {/* Internal Stainless Steel Clad Layer along ID Bottom Surface */}
           <rect
             x={plateLeft}
-            y={plateBottom - (3.0 / nominalWallThickness) * plateThicknessPx}
+            y={cladY}
             width={plateWidth}
-            height={(3.0 / nominalWallThickness) * plateThicknessPx}
+            height={cladHeightPx}
             fill="#38bdf8"
             fillOpacity="0.12"
             stroke="#0284c7"
@@ -331,13 +351,13 @@ export function WeldBevelSScanProfile({
           />
           <text
             x={plateRight - 16}
-            y={plateBottom - ((3.0 / nominalWallThickness) * plateThicknessPx) / 2 + 3.5}
+            y={cladY + cladHeightPx / 2 + 3.5}
             textAnchor="end"
             fontSize="9"
             fontWeight="bold"
             fill="#0284c7"
           >
-            CLAD (1.5mm / 3.0mm)
+            CLAD ({effCladThickness.toFixed(1)} mm)
           </text>
 
           {/* Asymmetric Double-V Weld Metal Fill (Grey Hourglass matching reference drawing) */}
@@ -765,6 +785,65 @@ export function WeldBevelSScanProfile({
               <circle cx={weldCenterX} cy={idCrackPath.tipY} r="2.5" fill="#16a34a" />
             </g>
           )}
+
+          {/* Bevel Fusion Lines Overlay — Drawn explicitly ON TOP ("upside") the marked crack & heat area */}
+          <g className="bevel-fusion-lines-overlay pointer-events-none">
+            {/* OD Left Bevel Line */}
+            <line
+              x1={odTtX}
+              y1={plateTop}
+              x2={weldCenterX - 3}
+              y2={rootY}
+              stroke="#334155"
+              strokeWidth="2"
+            />
+            {/* OD Right Bevel Line */}
+            <line
+              x1={odBtX}
+              y1={plateTop}
+              x2={weldCenterX + 3}
+              y2={rootY}
+              stroke="#334155"
+              strokeWidth="2"
+            />
+            {/* ID Left Bevel Line */}
+            <line
+              x1={idTtX}
+              y1={plateBottom}
+              x2={weldCenterX - 3}
+              y2={rootY}
+              stroke="#334155"
+              strokeWidth="2"
+            />
+            {/* ID Right Bevel Line */}
+            <line
+              x1={idBtX}
+              y1={plateBottom}
+              x2={weldCenterX + 3}
+              y2={rootY}
+              stroke="#334155"
+              strokeWidth="2"
+            />
+            {/* Root Face Horizontal Line */}
+            <line
+              x1={weldCenterX - 3}
+              y1={rootY}
+              x2={weldCenterX + 3}
+              y2={rootY}
+              stroke="#0f172a"
+              strokeWidth="2.5"
+            />
+            {/* Dotted Clad Boundary Line overlaying across the entire plate and weld area */}
+            <line
+              x1={plateLeft}
+              y1={cladY}
+              x2={plateRight}
+              y2={cladY}
+              stroke="#0284c7"
+              strokeWidth="1.2"
+              strokeDasharray="3 3"
+            />
+          </g>
 
           {/* Vertical Thickness Dimension Ruler on the right */}
           <g transform={`translate(${plateRight + 25}, 0)`}>

@@ -14,6 +14,9 @@ export interface VaultDataset {
   activeWeld?: string;
   repairZones?: RepairZone[];
   jointAliases?: Record<string, string>;
+  nominalWallThickness?: number;
+  cladThickness?: number;
+  jointDegrees?: number;
 }
 
 export interface VaultDatasetSummary {

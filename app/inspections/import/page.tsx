@@ -85,6 +85,12 @@ export default function ImportWizardPage() {
   const [jointAliases, setJointAliases] = useState<Record<string, string>>({});
   const [showRenameModal, setShowRenameModal] = useState<boolean>(false);
 
+  // Configurable Drum & Weld Joint Specifications
+  const [nominalWallThickness, setNominalWallThickness] = useState<number>(32.0);
+  const [cladThickness, setCladThickness] = useState<number>(3.0);
+  const [jointDegrees, setJointDegrees] = useState<number>(60.0);
+  const [showSpecsModal, setShowSpecsModal] = useState<boolean>(false);
+
   const getJointDisplayName = (weldKey: string) => {
     if (!weldKey) return "";
     if (weldKey === "ALL") return "All Welds";
@@ -179,6 +185,9 @@ export default function ImportWizardPage() {
         setMatrixResult(ds.matrixResult);
         if (ds.repairZones) setRepairZones(ds.repairZones);
         if (ds.jointAliases) setJointAliases(ds.jointAliases);
+        if (typeof ds.nominalWallThickness === "number") setNominalWallThickness(ds.nominalWallThickness);
+        if (typeof ds.cladThickness === "number") setCladThickness(ds.cladThickness);
+        if (typeof ds.jointDegrees === "number") setJointDegrees(ds.jointDegrees);
         setSelectedDrums(ds.activeDrum ? [ds.activeDrum] : ["ALL"]);
         setSelectedWelds(ds.activeWeld ? [ds.activeWeld] : ["ALL"]);
         await setActiveVaultDatasetId(id);
@@ -446,6 +455,9 @@ export default function ImportWizardPage() {
         mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         matrixResult,
         targetClientId: selectedClientId || undefined,
+        nominalWallThickness,
+        cladThickness,
+        jointDegrees,
       });
 
       // 2. Cache in Local Browser Vault
@@ -462,6 +474,9 @@ export default function ImportWizardPage() {
         activeWeld: selectedWelds[0] !== "ALL" ? selectedWelds[0] : undefined,
         repairZones,
         jointAliases,
+        nominalWallThickness,
+        cladThickness,
+        jointDegrees,
       });
 
       await setActiveVaultDatasetId(vaultId);
@@ -743,6 +758,86 @@ export default function ImportWizardPage() {
             </div>
           </div>
 
+          {/* 3. Drum & Weld Joint Geometry Specifications */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Sliders size={16} className="text-sky-600" />
+                  <span>3. Drum &amp; Weld Joint Specifications</span>
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Pre-configured engineering parameters for through-wall cross-sections, 360° ring maps, and remaining ligament calculations.
+                </p>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800">
+                Configurable
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+              {/* Nominal Wall Thickness */}
+              <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-1 shadow-xs">
+                <label className="block text-xs font-bold text-slate-700">
+                  Nominal Wall Thickness (mm)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="5"
+                    max="150"
+                    value={nominalWallThickness}
+                    onChange={(e) => setNominalWallThickness(Math.max(1, parseFloat(e.target.value) || 32.0))}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-500 font-bold shrink-0">mm</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Default: 32.0 mm</p>
+              </div>
+
+              {/* Clad Thickness */}
+              <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-1 shadow-xs">
+                <label className="block text-xs font-bold text-slate-700">
+                  Cladding Thickness (mm)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="30"
+                    value={cladThickness}
+                    onChange={(e) => setCladThickness(Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-500 font-bold shrink-0">mm</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Internal stainless steel cladding (Default: 3.0 mm)</p>
+              </div>
+
+              {/* Welding Joint Degrees (Total Groove Angle) */}
+              <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-1 shadow-xs">
+                <label className="block text-xs font-bold text-slate-700">
+                  Welding Joint Degrees (°)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="1"
+                    min="20"
+                    max="120"
+                    value={jointDegrees}
+                    onChange={(e) => setJointDegrees(Math.max(10, parseFloat(e.target.value) || 60.0))}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-500 font-bold shrink-0">deg</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Total groove angle (Default: 60° / 30° per side)</p>
+              </div>
+            </div>
+          </div>
+
           {/* Selection Summary Pill */}
           <div className="p-4 bg-sky-50/70 border border-sky-200 rounded-xl flex items-center justify-between text-xs">
             <div className="space-y-1">
@@ -854,6 +949,31 @@ export default function ImportWizardPage() {
                     <option key={c.key} value={c.key}>{c.label}</option>
                   ))}
                 </select>
+              </div>
+
+              {/* Drum & Weld Specs Quick Tuner */}
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+                <span className="font-bold text-slate-600 flex items-center gap-1">
+                  <Sliders size={12} className="text-sky-600" />
+                  <span>Specs:</span>
+                </span>
+                <span className="font-mono text-[11px] text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                  Wall: <strong>{nominalWallThickness}mm</strong>
+                </span>
+                <span className="font-mono text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                  Clad: <strong>{cladThickness}mm</strong>
+                </span>
+                <span className="font-mono text-[11px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                  Groove: <strong>{jointDegrees}°</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowSpecsModal(true)}
+                  className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors cursor-pointer"
+                  title="Tune drum wall thickness, clad thickness, and joint degrees"
+                >
+                  <Pencil size={12} />
+                </button>
               </div>
             </div>
 
@@ -1039,6 +1159,9 @@ export default function ImportWizardPage() {
                   onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
                   drumName={selectedDrums.includes("ALL") ? "All Coke Drums" : selectedDrums.map(d => `Coke Drum ${d}`).join(", ")}
                   weldName={selectedWelds.includes("ALL") ? "All Welds" : selectedWelds.map(w => getJointDisplayName(w)).join(", ")}
+                  nominalWallThickness={nominalWallThickness}
+                  cladThickness={cladThickness}
+                  jointDegrees={jointDegrees}
                   repairZones={repairZones}
                   layoutMode={layoutMode}
                 />
@@ -1050,13 +1173,18 @@ export default function ImportWizardPage() {
                   selectedFlawCode={activeFlaw?.code}
                   onSelectFlaw={(pi) => setSelectedFlawForForecast(pi)}
                   repairZones={repairZones}
+                  nominalWallThickness={nominalWallThickness}
+                  cladThickness={cladThickness}
+                  jointDegrees={jointDegrees}
                 />
               )}
 
               {visualizerTab === "BEVEL_SLICE" && activeFlaw && (
                 <WeldBevelSScanProfile
                   indication={activeFlaw}
-                  nominalWallThickness={32.0}
+                  nominalWallThickness={nominalWallThickness}
+                  cladThickness={cladThickness}
+                  jointDegrees={jointDegrees}
                 />
               )}
 
@@ -1065,7 +1193,7 @@ export default function ImportWizardPage() {
                   measurements={getMeasurementsForFlaw(activeFlaw)}
                   flawCode={activeFlaw.code}
                   locationInfo={`${activeFlaw.drumName} — ${getJointDisplayName(activeFlaw.weldName)} @ ${activeFlaw.locationText}`}
-                  nominalThickness={32.0}
+                  nominalThickness={nominalWallThickness}
                 />
               )}
 
@@ -1251,6 +1379,101 @@ export default function ImportWizardPage() {
         jointAliases={jointAliases}
         onSaveAliases={(aliases) => setJointAliases(aliases)}
       />
+
+      {/* Drum & Weld Specifications Quick Tuner Modal */}
+      {showSpecsModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-sky-100 text-sky-700 rounded-lg">
+                  <Sliders size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Weld &amp; Drum Geometry Specifications</h3>
+                  <p className="text-xs text-slate-500">Live parameter tuning for cross-sections &amp; ring maps</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSpecsModal(false)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nominal Wall Thickness (mm)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="5"
+                    max="150"
+                    value={nominalWallThickness}
+                    onChange={(e) => setNominalWallThickness(Math.max(1, parseFloat(e.target.value) || 32.0))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                  />
+                  <span className="text-xs font-bold text-slate-500 shrink-0">mm</span>
+                </div>
+                <span className="text-[10px] text-slate-400">Through-thickness shell wall dimension (Default: 32.0 mm)</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Cladding Thickness (mm)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="30"
+                    value={cladThickness}
+                    onChange={(e) => setCladThickness(Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                  />
+                  <span className="text-xs font-bold text-slate-500 shrink-0">mm</span>
+                </div>
+                <span className="text-[10px] text-slate-400">Internal stainless steel clad thickness (Default: 3.0 mm)</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Welding Joint Degrees (Total Groove Angle °)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="1"
+                    min="20"
+                    max="120"
+                    value={jointDegrees}
+                    onChange={(e) => setJointDegrees(Math.max(10, parseFloat(e.target.value) || 60.0))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                  />
+                  <span className="text-xs font-bold text-slate-500 shrink-0">deg</span>
+                </div>
+                <span className="text-[10px] text-slate-400">Total included groove angle (Default: 60° / 30° bevel per side)</span>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowSpecsModal(false)}
+                className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+              >
+                Apply &amp; Update Visuals
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

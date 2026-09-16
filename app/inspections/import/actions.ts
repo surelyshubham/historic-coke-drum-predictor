@@ -248,6 +248,9 @@ export async function commitMatrixDatasetAction(payload: {
   mimeType: string;
   matrixResult: MatrixParseResult;
   targetClientId?: number;
+  nominalWallThickness?: number;
+  cladThickness?: number;
+  jointDegrees?: number;
 }) {
   const session = await auth();
   if (session?.user?.role !== "MASTER") {
@@ -267,7 +270,7 @@ export async function commitMatrixDatasetAction(payload: {
     validUserId = firstMaster?.id || 1;
   }
 
-  const { drumId, matrixResult, targetClientId } = payload;
+  const { drumId, matrixResult, targetClientId, nominalWallThickness } = payload;
 
   try {
     // 0. Auto-register all unique drums detected in the matrix if missing
@@ -302,19 +305,23 @@ export async function commitMatrixDatasetAction(payload: {
             name: drumName,
             description: `Coke Drum ${drumName}`,
             diameter: 8.97,
-            nominalThickness: 32.0,
+            nominalThickness: nominalWallThickness || 32.0,
             material: "SA-387 Gr. 11 Cl. 2 (1.25Cr-0.5Mo)",
             status: "active",
           })
           .returning();
         drumLookup.set(norm, newDrum.id);
-      } else if (targetClientId) {
-        // If drum exists and targetClientId is explicitly passed, assign/update drum to target client
+      } else {
         const existingDrumId = drumLookup.get(norm)!;
-        await db
-          .update(cokeDrums)
-          .set({ clientId: targetClientId })
-          .where(eq(cokeDrums.id, existingDrumId));
+        const updateData: Record<string, unknown> = {};
+        if (targetClientId) updateData.clientId = targetClientId;
+        if (nominalWallThickness) updateData.nominalThickness = nominalWallThickness;
+        if (Object.keys(updateData).length > 0) {
+          await db
+            .update(cokeDrums)
+            .set(updateData)
+            .where(eq(cokeDrums.id, existingDrumId));
+        }
       }
     }
 

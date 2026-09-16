@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { 
   generateGrowthPrediction, 
   HistoricalMeasurement, 
@@ -34,6 +34,12 @@ export function PredictiveForecastChart({
 
   // User Configurable Thresholds & Custom Color Codes (Beside the Graph)
   const [nominalWallThickness, setNominalWallThickness] = useState<number>(propThickness);
+
+  useEffect(() => {
+    if (propThickness) {
+      setNominalWallThickness(propThickness);
+    }
+  }, [propThickness]);
   const [warningPercent, setWarningPercent] = useState<number>(initialWarningPercent);
   const [criticalPercent, setCriticalPercent] = useState<number>(initialCriticalPercent);
   const [warningColor, setWarningColor] = useState<string>("#f59e0b"); // Amber
