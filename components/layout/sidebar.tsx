@@ -103,12 +103,14 @@ export function Sidebar({ role }: { role: string }) {
       </nav>
 
       {/* Footer Settings & Color Codes */}
-      <div className="p-3 border-t border-slate-200/60">
-        <Link href="/admin" className={navLinkClass("/admin")}>
-          <Settings size={18} />
-          <span>Color Codes &amp; Settings</span>
-        </Link>
-      </div>
+      {(role === "MASTER" || role === "ADMIN") && (
+        <div className="p-3 border-t border-slate-200/60">
+          <Link href="/admin" className={navLinkClass("/admin")}>
+            <Settings size={18} />
+            <span>Color Codes &amp; Settings</span>
+          </Link>
+        </div>
+      )}
     </aside>
   );
 }

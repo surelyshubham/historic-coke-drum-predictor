@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { LogOut, User, Palette } from "lucide-react";
+import { signOut } from "next-auth/react";
 
 export function Header({ userName, role }: { userName: string; role: string }) {
   return (
@@ -23,14 +24,16 @@ export function Header({ userName, role }: { userName: string; role: string }) {
 
       <div className="flex items-center space-x-3">
         {/* Quick Color Codes Setup Shortcut Button */}
-        <Link
-          href="/admin"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50/80 text-slate-700 hover:bg-slate-100 hover:text-slate-900 text-xs font-bold transition shadow-2xs"
-          title="Configure PAUT Defect Severity Colors & Depth Scales"
-        >
-          <Palette size={15} className="text-violet-600" />
-          <span className="hidden sm:inline">Color Codes</span>
-        </Link>
+        {(role === "MASTER" || role === "ADMIN") && (
+          <Link
+            href="/admin"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50/80 text-slate-700 hover:bg-slate-100 hover:text-slate-900 text-xs font-bold transition shadow-2xs"
+            title="Configure PAUT Defect Severity Colors & Depth Scales"
+          >
+            <Palette size={15} className="text-violet-600" />
+            <span className="hidden sm:inline">Color Codes</span>
+          </Link>
+        )}
 
         <div className="flex items-center space-x-2 text-slate-600 pl-2">
           <User size={18} />
@@ -38,7 +41,7 @@ export function Header({ userName, role }: { userName: string; role: string }) {
         </div>
 
         <button 
-          onClick={() => { /* NextAuth signOut goes here */ }}
+          onClick={() => signOut({ callbackUrl: "/login" })}
           className="p-2 text-slate-500 hover:text-red-600 rounded-full hover:bg-slate-100 transition-colors"
           title="Sign Out"
         >

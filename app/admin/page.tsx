@@ -1,7 +1,14 @@
 import { Settings, Shield, Key, Database, RefreshCw } from "lucide-react";
 import { ColorScaleAdminManager } from "@/components/admin/ColorScaleAdminManager";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
-export default function AdminSettingsPage() {
+export default async function AdminSettingsPage() {
+  const session = await auth();
+  if (!session?.user || (session.user.role !== "MASTER" && session.user.role !== "ADMIN")) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <div>
