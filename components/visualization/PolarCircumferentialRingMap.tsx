@@ -31,7 +31,9 @@ interface PolarDefectBadgeProps {
   outerRadius: number;
   innerRadius: number;
   center: number;
-  midRad: number;
+  origMidRad: number;
+  badgeX: number;
+  badgeY: number;
   isSelected: boolean;
   isHovered: boolean;
   defectNum: number;
@@ -42,7 +44,9 @@ function PolarDefectBadge({
   outerRadius,
   innerRadius,
   center,
-  midRad,
+  origMidRad,
+  badgeX,
+  badgeY,
   isSelected,
   isHovered,
   defectNum,
@@ -50,36 +54,33 @@ function PolarDefectBadge({
   const isOdFlaw = surface === "OD";
   // Large readable badges: single digit r=12, double digit r=14
   const badgeRadius = defectNum >= 10 ? 14 : 12;
-  // Position OD badges cleanly outside outer ring (outerRadius=230 -> r=252)
-  // Position ID badges inside inner ring in the open center area (innerRadius=188 -> r=150)
-  const numRadius = isOdFlaw ? outerRadius + 22 : innerRadius - 38;
-  const nx = center + numRadius * Math.cos(midRad);
-  const ny = center + numRadius * Math.sin(midRad);
+  const origSurfX = center + (isOdFlaw ? outerRadius + 2 : innerRadius - 2) * Math.cos(origMidRad);
+  const origSurfY = center + (isOdFlaw ? outerRadius + 2 : innerRadius - 2) * Math.sin(origMidRad);
 
   return (
     <g className="pointer-events-none defect-num-badge">
-      {/* Subtle dashed leader line connecting the ring flaw location to the badge */}
+      {/* Subtle dashed leader line connecting the ring flaw location directly to the badge */}
       <line
-        x1={center + (isOdFlaw ? outerRadius + 2 : innerRadius - 2) * Math.cos(midRad)}
-        y1={center + (isOdFlaw ? outerRadius + 2 : innerRadius - 2) * Math.sin(midRad)}
-        x2={nx}
-        y2={ny}
-        stroke={isSelected || isHovered ? "#0284c7" : "#64748b"}
-        strokeWidth="1.2"
-        strokeDasharray="2 2"
-        opacity="0.75"
+        x1={origSurfX}
+        y1={origSurfY}
+        x2={badgeX}
+        y2={badgeY}
+        stroke={isSelected || isHovered ? "#0284c7" : "#475569"}
+        strokeWidth={isSelected || isHovered ? "2" : "1.3"}
+        strokeDasharray="2.5 2"
+        opacity={isSelected || isHovered ? "1" : "0.75"}
       />
       {/* Outer contrast drop circle */}
       <circle
-        cx={nx}
-        cy={ny}
+        cx={badgeX}
+        cy={badgeY}
         r={badgeRadius + 1.5}
         fill="#ffffff"
       />
       {/* Main bold badge disc */}
       <circle
-        cx={nx}
-        cy={ny}
+        cx={badgeX}
+        cy={badgeY}
         r={badgeRadius}
         fill={isSelected || isHovered ? "#0284c7" : "#0f172a"}
         stroke="#ffffff"
@@ -87,8 +88,8 @@ function PolarDefectBadge({
       />
       {/* High-visibility bold defect number */}
       <text
-        x={nx}
-        y={ny}
+        x={badgeX}
+        y={badgeY}
         textAnchor="middle"
         dominantBaseline="central"
         fontSize={defectNum >= 10 ? "11" : "12"}
@@ -296,6 +297,128 @@ export function PolarCircumferentialRingMap({
     return "ID";
   };
 
+  // Smart dynamic non-overlapping badge layout computation
+  const smartBadgeLayouts = useMemo(() => {
+    const MIN_DIST = 34; // Minimum distance in px between badge centers
+    const cardinalRadius = outerRadius + 24;
+
+    const obstacles = [
+      { x: center, y: center - cardinalRadius - 6, r: 26 }, // North 0°
+      { x: center - cardinalRadius - 12, y: center + 5, r: 24 }, // 90°
+      { x: center, y: center + cardinalRadius + 18, r: 24 }, // 180°
+      { x: center + cardinalRadius + 12, y: center + 5, r: 24 }, // 270°
+      { x: center - 135, y: -18, r: 42 }, // Far-upwards Scanned Direction Pill
+    ];
+
+    // OD Tiers: step outwards / upwards away from outer wall
+    const odTiers = [
+      outerRadius + 24, // Tier 0: 254px
+      outerRadius + 58, // Tier 1: 288px
+      outerRadius + 92, // Tier 2: 322px
+      outerRadius + 124, // Tier 3: 354px
+    ];
+
+    // ID Tiers: step inwards / downwards into center cavity
+    const idTiers = [
+      innerRadius - 38, // Tier 0: 150px
+      innerRadius - 72, // Tier 1: 116px
+      innerRadius - 104, // Tier 2: 84px
+    ];
+
+    const angleOffsetsDeg = [0, 3, -3, 6, -6, 9, -9, 12, -12];
+
+    function getCandidateOptions(isOd: boolean) {
+      const tiers = isOd ? odTiers : idTiers;
+      const list: Array<{ radius: number; offsetDeg: number; tier: number; cost: number }> = [];
+      for (let t = 0; t < tiers.length; t++) {
+        for (let a = 0; a < angleOffsetsDeg.length; a++) {
+          const offsetDeg = angleOffsetsDeg[a];
+          // Cost balances radial jump vs angle offset
+          const cost = t * 1.8 + Math.abs(offsetDeg) * 0.35;
+          list.push({ radius: tiers[t], offsetDeg, tier: t, cost });
+        }
+      }
+      list.sort((a, b) => a.cost - b.cost);
+      return list;
+    }
+
+    const odCandidates = getCandidateOptions(true);
+    const idCandidates = getCandidateOptions(false);
+
+    const placed: Array<{ x: number; y: number; code: string }> = [];
+    const layoutMap: Record<string, { x: number; y: number; radius: number; angleRad: number; origMidRad: number }> = {};
+
+    indications.forEach((pi) => {
+      const surface = getFlawSurface(pi);
+      const isOd = surface === "OD";
+      const candidates = isOd ? odCandidates : idCandidates;
+
+      const flawLen = Math.max(120, pi.latestLength || 350);
+      const midMm = pi.circumferentialPosition + flawLen / 2;
+      const { angleRad: origMidRad, angleDeg: origAngleDeg } = mmToAngle(midMm);
+
+      let chosen: { x: number; y: number; radius: number; angleRad: number; origMidRad: number } | null = null;
+
+      for (const cand of candidates) {
+        const candAngleDeg = origAngleDeg + cand.offsetDeg;
+        const candAngleRad = degToAngleRad(candAngleDeg);
+
+        const x = center + cand.radius * Math.cos(candAngleRad);
+        const y = center + cand.radius * Math.sin(candAngleRad);
+
+        // Check obstacle collision
+        let collidesObstacle = false;
+        for (const obs of obstacles) {
+          if (Math.hypot(x - obs.x, y - obs.y) < obs.r) {
+            collidesObstacle = true;
+            break;
+          }
+        }
+        if (collidesObstacle) continue;
+
+        // Check center text clearance for ID badges
+        if (!isOd && Math.hypot(x - center, y - center) < 55) {
+          continue;
+        }
+
+        // Check collision against all previously placed badges
+        let collidesBadge = false;
+        for (const p of placed) {
+          if (Math.hypot(x - p.x, y - p.y) < MIN_DIST) {
+            collidesBadge = true;
+            break;
+          }
+        }
+        if (collidesBadge) continue;
+
+        chosen = {
+          x,
+          y,
+          radius: cand.radius,
+          angleRad: candAngleRad,
+          origMidRad,
+        };
+        break;
+      }
+
+      if (!chosen) {
+        const defaultRadius = isOd ? odTiers[0] : idTiers[0];
+        chosen = {
+          x: center + defaultRadius * Math.cos(origMidRad),
+          y: center + defaultRadius * Math.sin(origMidRad),
+          radius: defaultRadius,
+          angleRad: origMidRad,
+          origMidRad,
+        };
+      }
+
+      placed.push({ x: chosen.x, y: chosen.y, code: pi.code });
+      layoutMap[pi.code] = chosen;
+    });
+
+    return layoutMap;
+  }, [indications, center, outerRadius, innerRadius, totalCircumferenceMm]);
+
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
@@ -464,7 +587,7 @@ export function PolarCircumferentialRingMap({
           <div className={`${layoutMode === "CANVAS_ONLY" ? "col-span-1 relative flex justify-center items-center py-4" : "lg:col-span-7 relative flex justify-center items-center py-2"}`}>
             <svg
               ref={svgRef}
-              viewBox={`-20 -25 ${size + 40} ${size + 40}`}
+              viewBox="-50 -55 720 710"
               className={`w-full ${layoutMode === "CANVAS_ONLY" ? "max-w-[700px]" : "max-w-[560px]"} h-auto select-none cursor-crosshair overflow-visible`}
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
@@ -683,7 +806,7 @@ export function PolarCircumferentialRingMap({
             270°
           </text>
 
-          {/* Scanned Direction Curved Arrow Repositioned in North-West Quadrant (Away from North 0°) */}
+          {/* Scanned Direction Indicator Positioned Far Upwards in White Space (Clear of all flaw markings) */}
           <g className="scanned-direction-indicator">
             <defs>
               <marker
@@ -694,59 +817,67 @@ export function PolarCircumferentialRingMap({
                 refY="4"
                 orient="auto"
               >
-                <polygon points="0 0, 8 4, 0 8" fill="#0f172a" />
+                <polygon points="0 0, 8 4, 0 8" fill="#0284c7" />
               </marker>
             </defs>
 
-            {/* Curved arrow path sweeping anticlockwise in Northwest quadrant (26° to 68°) */}
+            {/* Curved arrow path sweeping anticlockwise situated far upwards in upper-left quadrant (20° to 62°) */}
             {(() => {
-              const arrowRadius = outerRadius + 24;
-              const startA = degToAngleRad(26);
-              const endA = degToAngleRad(68);
+              const arrowRadius = outerRadius + 84;
+              const startA = degToAngleRad(20);
+              const endA = degToAngleRad(62);
               const pathD = describeAnticlockwiseArc(center, center, arrowRadius, startA, endA);
               return (
-                <path
-                  d={pathD}
-                  fill="none"
-                  stroke="#0f172a"
-                  strokeWidth="2.4"
-                  markerEnd="url(#anticlockwise-arrow)"
-                />
-              );
-            })()}
-
-            {/* Label in the Northwest space clear of North 0° */}
-            {(() => {
-              const labelRad = degToAngleRad(47);
-              const lx = center + (outerRadius + 44) * Math.cos(labelRad);
-              const ly = center + (outerRadius + 44) * Math.sin(labelRad);
-              return (
                 <g>
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke="#0284c7"
+                    strokeWidth="2.4"
+                    strokeDasharray="4 3"
+                    markerEnd="url(#anticlockwise-arrow)"
+                  />
+                  {/* Angle progression reference label along the arrow */}
                   <text
-                    x={lx}
-                    y={ly - 7}
+                    x={center + (arrowRadius + 14) * Math.cos(degToAngleRad(41))}
+                    y={center + (arrowRadius + 14) * Math.sin(degToAngleRad(41))}
                     textAnchor="middle"
-                    fontSize="11.5"
-                    fontWeight="900"
+                    fontSize="10"
+                    fontWeight="800"
+                    fill="#0284c7"
                     fontFamily="sans-serif"
-                    fill="#0f172a"
                   >
-                    Scanned
-                  </text>
-                  <text
-                    x={lx}
-                    y={ly + 8}
-                    textAnchor="middle"
-                    fontSize="11.5"
-                    fontWeight="900"
-                    fontFamily="sans-serif"
-                    fill="#0f172a"
-                  >
-                    Direction
+                    0° → 90°
                   </text>
                 </g>
               );
             })()}
+
+            {/* Scanned Direction Pill Badge placed far upwards in open white space (y = -18) */}
+            <g transform={`translate(${center - 135}, -18)`}>
+              <rect
+                x="-85"
+                y="-13"
+                width="170"
+                height="26"
+                rx="13"
+                fill="#0f172a"
+                stroke="#0284c7"
+                strokeWidth="1.5"
+              />
+              <text
+                x="0"
+                y="4.5"
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="900"
+                fill="#38bdf8"
+                fontFamily="sans-serif"
+                letterSpacing="0.04em"
+              >
+                ↺ SCANNED DIRECTION
+              </text>
+            </g>
           </g>
 
           {/* Center Vessel Designation - High Contrast, Bold & Large */}
@@ -923,17 +1054,29 @@ export function PolarCircumferentialRingMap({
 
 
 
-                {/* Clean Numeric Badge on inner/outer side */}
-                <PolarDefectBadge
-                  surface={surface}
-                  outerRadius={outerRadius}
-                  innerRadius={innerRadius}
-                  center={center}
-                  midRad={midRad}
-                  isSelected={isSelected}
-                  isHovered={isHovered}
-                  defectNum={defectNum}
-                />
+                {/* Clean Numeric Badge on inner/outer side with smart non-overlapping positioning */}
+                {(() => {
+                  const layout = smartBadgeLayouts[pi.code];
+                  const defaultRadius = surface === "OD" ? outerRadius + 22 : innerRadius - 38;
+                  const bx = layout?.x ?? (center + defaultRadius * Math.cos(midRad));
+                  const by = layout?.y ?? (center + defaultRadius * Math.sin(midRad));
+                  const origMid = layout?.origMidRad ?? midRad;
+
+                  return (
+                    <PolarDefectBadge
+                      surface={surface}
+                      outerRadius={outerRadius}
+                      innerRadius={innerRadius}
+                      center={center}
+                      origMidRad={origMid}
+                      badgeX={bx}
+                      badgeY={by}
+                      isSelected={isSelected}
+                      isHovered={isHovered}
+                      defectNum={defectNum}
+                    />
+                  );
+                })()}
               </g>
             );
             })}
