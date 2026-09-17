@@ -16,6 +16,7 @@ import {
   ImageRun,
 } from "docx";
 import { ReportPayload } from "./reportTypes";
+import { DEFAULT_COLOR_SCALE, ColorScaleConfig } from "@/lib/colors/colorScales";
 
 function parseBase64Image(dataUrl?: string): Uint8Array | null {
   if (!dataUrl) return null;
@@ -39,8 +40,381 @@ function parseBase64Image(dataUrl?: string): Uint8Array | null {
   }
 }
 
+function stripHash(hex: string): string {
+  return (hex || "").replace(/^#/, "");
+}
+
+function createMasterColorCodeTable(
+  colorScale: ColorScaleConfig = DEFAULT_COLOR_SCALE,
+  nominalWall: number = 32.0,
+  cladMm: number = 3.0
+): Table {
+  const thinBorder = {
+    top: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+    bottom: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+    left: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+    right: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+  };
+
+  const rows: TableRow[] = [
+    new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          shading: { fill: "0f172a" },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: "COLOR CODE", bold: true, color: "ffffff", size: 16 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 25, type: WidthType.PERCENTAGE },
+          shading: { fill: "0f172a" },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: "DEPTH / BOUNDARY", bold: true, color: "ffffff", size: 16 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          shading: { fill: "0f172a" },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: "SEVERITY TIER", bold: true, color: "ffffff", size: 16 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 35, type: WidthType.PERCENTAGE },
+          shading: { fill: "0f172a" },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: "ENGINEERING SIGNIFICANCE", bold: true, color: "ffffff", size: 16 })],
+            }),
+          ],
+        }),
+      ],
+    }),
+  ];
+
+  // 1. Sound Base Metal
+  const soundHex = stripHash(colorScale.soundWallColor || "#7CFC00");
+  rows.push(
+    new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          shading: { fill: soundHex },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: "SOUND WALL", bold: true, color: "0f172a", size: 16 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 25, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "0.0 mm (No Crack)", bold: true, size: 16, color: "0f172a" })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "ACCEPTABLE", bold: true, size: 16, color: "16a34a" })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 35, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Full nominal ligament intact (100% sound shell steel).", size: 16, color: "334155" })],
+            }),
+          ],
+        }),
+      ],
+    })
+  );
+
+  // 2. Replaced / Repaired Steel
+  rows.push(
+    new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          shading: { fill: "4E9A06" },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: "REPLACED", bold: true, color: "ffffff", size: 16 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 25, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Replaced Shell Plate", bold: true, size: 16, color: "0f172a" })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "REPAIRED ZONE", bold: true, size: 16, color: "15803d" })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 35, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Prior turnaround weld repair/steel plate replacement.", size: 16, color: "334155" })],
+            }),
+          ],
+        }),
+      ],
+    })
+  );
+
+  // 3. Cladding Layer
+  rows.push(
+    new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          shading: { fill: "0284c7" },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: "CLAD LAYER", bold: true, color: "ffffff", size: 16 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 25, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: `~${cladMm.toFixed(1)} mm ID Boundary`, bold: true, size: 16, color: "0f172a" })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "INTERNAL CLAD", bold: true, size: 16, color: "0369a1" })],
+            }),
+          ],
+        }),
+        new TableCell({
+          width: { size: 35, type: WidthType.PERCENTAGE },
+          borders: thinBorder,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Internal corrosion-resistant 410S stainless clad interface.", size: 16, color: "334155" })],
+            }),
+          ],
+        }),
+      ],
+    })
+  );
+
+  // 4. Defect Depth Tiers
+  for (const t of colorScale.tiers) {
+    const tHex = stripHash(t.color);
+    const depthRange = t.maxDepthMm === null
+      ? `> ${t.minDepthMm.toFixed(1)} mm`
+      : `${t.minDepthMm.toFixed(1)} – ${t.maxDepthMm.toFixed(1)} mm`;
+
+    const pctRange = t.maxDepthMm === null
+      ? `> ${Math.round((t.minDepthMm / nominalWall) * 100)}% wall`
+      : `${Math.round((t.minDepthMm / nominalWall) * 100)}% – ${Math.round((t.maxDepthMm / nominalWall) * 100)}% wall`;
+
+    const isCritical = t.maxDepthMm === null || t.minDepthMm >= 8.0;
+    const isHigh = !isCritical && t.minDepthMm >= 6.0;
+    const isMod = !isCritical && !isHigh && t.minDepthMm >= 3.0;
+
+    const tierName = isCritical ? "CRITICAL RISK" : isHigh ? "HIGH RISK" : isMod ? "MODERATE RISK" : "MONITORED";
+    const tierTextColor = isCritical ? "dc2626" : isHigh ? "ea580c" : isMod ? "d97706" : "16a34a";
+    const tierAction = isCritical
+      ? "Turnaround repair scoop required; structural review."
+      : isHigh
+      ? "Turnaround window maintenance planning & verification."
+      : isMod
+      ? "Scheduled PAUT monitoring; track growth delta."
+      : "Acceptable crack depth; periodic re-inspection.";
+
+    const isLightBg = tHex.toLowerCase() === "eab308" || tHex.toLowerCase() === "fef9c3" || tHex.toLowerCase() === "7cfc00";
+
+    rows.push(
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 20, type: WidthType.PERCENTAGE },
+            shading: { fill: tHex },
+            borders: thinBorder,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: t.label, bold: true, color: isLightBg ? "0f172a" : "ffffff", size: 16 })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 25, type: WidthType.PERCENTAGE },
+            borders: thinBorder,
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: `${depthRange} (${pctRange})`, bold: true, size: 16, color: "0f172a" })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 20, type: WidthType.PERCENTAGE },
+            borders: thinBorder,
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: tierName, bold: true, size: 16, color: tierTextColor })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 35, type: WidthType.PERCENTAGE },
+            borders: thinBorder,
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: tierAction, size: 16, color: "334155" })],
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+  }
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows,
+  });
+}
+
+function createWeldFigureLegendTable(
+  colorScale: ColorScaleConfig = DEFAULT_COLOR_SCALE,
+  cladMm: number = 3.0
+): Table {
+  const thinBorder = {
+    top: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+    bottom: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+    left: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+    right: { style: BorderStyle.SINGLE, size: 4, color: "cbd5e1" },
+  };
+
+  const cells: TableCell[] = [];
+
+  // Sound Wall
+  cells.push(
+    new TableCell({
+      width: { size: 14, type: WidthType.PERCENTAGE },
+      shading: { fill: stripHash(colorScale.soundWallColor || "#7CFC00") },
+      borders: thinBorder,
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: "Sound Wall", bold: true, color: "0f172a", size: 14 })],
+        }),
+      ],
+    })
+  );
+
+  // Replaced Steel
+  cells.push(
+    new TableCell({
+      width: { size: 14, type: WidthType.PERCENTAGE },
+      shading: { fill: "4E9A06" },
+      borders: thinBorder,
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: "Replaced", bold: true, color: "ffffff", size: 14 })],
+        }),
+      ],
+    })
+  );
+
+  // Clad Layer
+  cells.push(
+    new TableCell({
+      width: { size: 14, type: WidthType.PERCENTAGE },
+      shading: { fill: "0284c7" },
+      borders: thinBorder,
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: `Clad (~${cladMm.toFixed(1)}mm)`, bold: true, color: "ffffff", size: 14 })],
+        }),
+      ],
+    })
+  );
+
+  // Color Scale Tiers
+  const tierWidth = Math.floor(58 / (colorScale.tiers.length || 1));
+  colorScale.tiers.forEach((t) => {
+    const tHex = stripHash(t.color);
+    const isLightBg = tHex.toLowerCase() === "eab308" || tHex.toLowerCase() === "fef9c3" || tHex.toLowerCase() === "7cfc00";
+
+    cells.push(
+      new TableCell({
+        width: { size: tierWidth, type: WidthType.PERCENTAGE },
+        shading: { fill: tHex },
+        borders: thinBorder,
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: t.label, bold: true, color: isLightBg ? "0f172a" : "ffffff", size: 14 })],
+          }),
+        ],
+      })
+    );
+  });
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [new TableRow({ children: cells })],
+  });
+}
+
 export function createDocxDocument(payload: ReportPayload): Document {
   const { vesselInfo, executiveSummary, indications, allCampaignNames } = payload;
+  const activeColorScale = payload.colorScale || DEFAULT_COLOR_SCALE;
+  const nominalWall = vesselInfo.nominalThickness || 32.0;
+  const effClad = 3.0;
   const circumferenceM = Number(((vesselInfo.diameter * Math.PI)).toFixed(2));
   const dateStr = new Date().toLocaleDateString("en-US", {
     year: "numeric",
@@ -481,7 +855,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
           // Section 4: Visual Inspection Suite Overview with Embedded Graphic Images
           new Paragraph({
             heading: HeadingLevel.HEADING_1,
-            spacing: { before: 300, after: 120 },
+            spacing: { before: 300, after: 100 },
             children: [
               new TextRun({
                 text: "4. PAUT Engineering Visualizations & High-Resolution Maps",
@@ -491,6 +865,31 @@ export function createDocxDocument(payload: ReportPayload): Document {
               }),
             ],
           }),
+
+          // Subsection 4.0: Inspection Color Coding Standards & Defect Severity Tiers
+          new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 120, after: 80 },
+            children: [
+              new TextRun({
+                text: "4.0 PAUT Inspection Color Codes & Severity Grading Standards",
+                bold: true,
+                size: 20,
+                color: "0369a1",
+              }),
+            ],
+          }),
+          new Paragraph({
+            spacing: { after: 120 },
+            children: [
+              new TextRun({
+                text: "The following standardized color scale governs all 360° circumferential weld maps, C-scan plan views, and crack depth evaluations across each inspected weld seam. Flaw colors are calibrated to nominal wall thickness and remaining ligament margins.",
+                size: 16,
+                color: "334155",
+              }),
+            ],
+          }),
+          createMasterColorCodeTable(activeColorScale, nominalWall, effClad),
 
           ...(() => {
             const uniqueWelds = Array.from(new Set(indications.map((i) => i.weldName))).filter(Boolean);
@@ -507,7 +906,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
               paras.push(
                 new Paragraph({
                   heading: HeadingLevel.HEADING_2,
-                  spacing: { before: 200, after: 100 },
+                  spacing: { before: 240, after: 100 },
                   children: [
                     new TextRun({
                       text: `4.${wIdx + 1} Weld Joint ${wName} Inspection Visualizations & Lifing Assessment`,
@@ -535,7 +934,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
                   }),
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { after: 160 },
+                    spacing: { after: 60 },
                     children: [
                       new TextRun({
                         text: `Figure 4.${wIdx + 1}.1: 360° Circumferential Map — Seam ${wName} (~${circumferenceM} m Perimeter, Slots L1–L28)`,
@@ -543,6 +942,20 @@ export function createDocxDocument(payload: ReportPayload): Document {
                         bold: true,
                         size: 16,
                         color: "334155",
+                      }),
+                    ],
+                  }),
+                  // Color Code Key Table under Figure 4.X.1
+                  createWeldFigureLegendTable(activeColorScale, effClad),
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { before: 40, after: 160 },
+                    children: [
+                      new TextRun({
+                        text: `Figure 4.${wIdx + 1}.1 Color Key: Sound Base Wall (Lime Green) | Replaced Steel (Dark Green) | Clad Layer ID (Blue Dotted) | Depth Tiers: Yellow (0.5–3mm) | Orange (3.1–6mm) | Red (6.1–10mm) | Maroon (>10mm)`,
+                        size: 13,
+                        color: "64748b",
+                        italics: true,
                       }),
                     ],
                   })
@@ -565,7 +978,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
                   }),
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { after: 160 },
+                    spacing: { after: 60 },
                     children: [
                       new TextRun({
                         text: `Figure 4.${wIdx + 1}.2: Weld Width with Indications Plan View (C-Scan) — Seam ${wName}`,
@@ -573,6 +986,20 @@ export function createDocxDocument(payload: ReportPayload): Document {
                         bold: true,
                         size: 16,
                         color: "334155",
+                      }),
+                    ],
+                  }),
+                  // Color Code Key Table under Figure 4.X.2
+                  createWeldFigureLegendTable(activeColorScale, effClad),
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { before: 40, after: 160 },
+                    children: [
+                      new TextRun({
+                        text: `Figure 4.${wIdx + 1}.2 Guidelines & Color Key: Centerline (0 mm, Green) | Weld Cap (±3 mm, Purple) | Clad Interface (±3.8 mm, Sky Blue) | HAZ (±6 mm, Slate) | Depth Tiers: Yellow / Orange / Red / Maroon`,
+                        size: 13,
+                        color: "64748b",
+                        italics: true,
                       }),
                     ],
                   })

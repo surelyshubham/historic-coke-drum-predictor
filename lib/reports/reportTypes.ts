@@ -72,6 +72,8 @@ export interface ReportImages {
   weldImages?: Record<string, WeldImages>;
 }
 
+import { ColorScaleConfig } from "@/lib/colors/colorScales";
+
 export interface ReportPayload {
   vesselInfo: VesselInfo;
   executiveSummary: ExecutiveSummary;
@@ -82,6 +84,7 @@ export interface ReportPayload {
   selectedIndicationId: number | null;
   allCampaignNames: string[];
   images?: ReportImages;
+  colorScale?: ColorScaleConfig;
 }
 
 export interface ReportSectionConfig {

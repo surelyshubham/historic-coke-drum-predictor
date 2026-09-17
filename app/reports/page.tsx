@@ -53,6 +53,11 @@ import {
   parseMatrixRows, 
   MatrixParseResult 
 } from "@/lib/import/matrixParser";
+import { 
+  DEFAULT_COLOR_SCALE, 
+  ColorScaleConfig, 
+  getStoredColorScale 
+} from "@/lib/colors/colorScales";
 
 export default function ReportsPage() {
   const [payload, setPayload] = useState<ReportPayload | null>(null);
@@ -88,6 +93,22 @@ export default function ReportsPage() {
   const { compileReportPayloadWithWorker } = useVaultWorker();
   const [vaultDatasets, setVaultDatasets] = useState<VaultDatasetSummary[]>([]);
   const [activeVaultDataset, setActiveVaultDataset] = useState<VaultDataset | null>(null);
+  const [activeColorScale, setActiveColorScale] = useState<ColorScaleConfig>(() =>
+    getStoredColorScale()
+  );
+
+  useEffect(() => {
+    const update = () => {
+      setActiveColorScale(getStoredColorScale(undefined, selectedDrumId || undefined));
+    };
+    update();
+    window.addEventListener("paut-color-scale-updated", update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener("paut-color-scale-updated", update);
+      window.removeEventListener("storage", update);
+    };
+  }, [selectedDrumId]);
 
   useEffect(() => {
     initializeReports();
@@ -653,6 +674,7 @@ export default function ReportsPage() {
         executiveSummary: effectiveExecutiveSummary || payload.executiveSummary,
         indications: displayIndications.filter((ind) => weldsToProcess.includes(ind.weldName)),
         images,
+        colorScale: activeColorScale || DEFAULT_COLOR_SCALE,
       };
 
       // Generate document directly in browser to bypass Vercel serverless request body limits
@@ -1517,6 +1539,55 @@ export default function ReportsPage() {
 
                   return (
                     <>
+                      {/* Weld Assessment Color Coding & Inspection Acceptance Standard Banner */}
+                      <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5 shadow-xs">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                          <span className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                            <Palette size={14} className="text-sky-600" />
+                            <span>Visual Color Codes &amp; Flaw Severity Standards — Seam {weldName}</span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            Wall: <strong>{seamNominalThickness.toFixed(1)} mm</strong> • Clad: <strong>{seamCladThickness.toFixed(1)} mm</strong> • Bevel: <strong>{seamJointDegrees}°</strong>
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          {/* Sound Base Metal */}
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-300 bg-slate-50 font-semibold text-[11px]">
+                            <span className="w-3 h-3 rounded-xs border border-slate-400/40 inline-block" style={{ backgroundColor: activeColorScale.soundWallColor || "#7CFC00" }}></span>
+                            <span className="text-slate-800">Sound Base Metal (100% Wall)</span>
+                          </span>
+
+                          {/* Replaced Steel */}
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-300 bg-emerald-50/60 font-semibold text-[11px]">
+                            <span className="w-3 h-3 rounded-xs bg-[#4E9A06] inline-block"></span>
+                            <span className="text-emerald-950 font-bold">🔧 Replaced / Repaired Steel</span>
+                          </span>
+
+                          {/* Cladding Layer */}
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-blue-300 bg-blue-50/70 font-semibold text-[11px]">
+                            <span className="w-4 h-0 border-t-2 border-dashed border-sky-600 inline-block"></span>
+                            <span className="text-sky-950 font-bold">Clad Layer (~{seamCladThickness.toFixed(1)}mm ID)</span>
+                          </span>
+
+                          {/* Active Tiers */}
+                          {activeColorScale.tiers.map((t) => (
+                            <span
+                              key={t.id}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border font-semibold text-[11px]"
+                              style={{
+                                backgroundColor: t.badgeBg || "#f8fafc",
+                                borderColor: t.color,
+                                color: t.textColor || "#0f172a",
+                              }}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: t.color }}></span>
+                              <span>{t.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
                       {/* 2.X.1 360° Polar Circumferential Ring Map for this weld */}
                       {sections.polarRingMap && (
                         <div className="space-y-3">
@@ -1542,6 +1613,7 @@ export default function ReportsPage() {
                               nominalWallThickness={seamNominalThickness}
                               cladThickness={seamCladThickness}
                               jointDegrees={seamJointDegrees}
+                              colorScale={activeColorScale}
                             />
                           </div>
                         </div>
@@ -1569,6 +1641,7 @@ export default function ReportsPage() {
                               nominalWallThickness={seamNominalThickness}
                               cladThickness={seamCladThickness}
                               jointDegrees={seamJointDegrees}
+                              colorScale={activeColorScale}
                             />
                           </div>
                         </div>
