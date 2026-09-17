@@ -1345,6 +1345,7 @@ export default function PredictiveModelingPage() {
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedIndicationId(item.id);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
                           }}
                           className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 mx-auto transition ${
                             isSelected
