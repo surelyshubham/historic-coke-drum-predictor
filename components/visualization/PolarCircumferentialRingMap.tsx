@@ -722,9 +722,9 @@ export function PolarCircumferentialRingMap({
               {/* Slot label inside inner circumference - Bold, Large & High Contrast */}
               <text
                 x={s.labelPos.x}
-                y={s.labelPos.y + 4}
+                y={s.labelPos.y + 5}
                 textAnchor="middle"
-                fontSize={s.label === "L1" || s.label === "L28" ? "13" : "11.5"}
+                fontSize={s.label === "L1" || s.label === "L28" ? "15" : "13.5"}
                 fontFamily="sans-serif"
                 fontWeight="900"
                 fill={hoverPolar?.currentSlot === s.label ? "#0284c7" : "#0f172a"}
@@ -744,9 +744,9 @@ export function PolarCircumferentialRingMap({
           <g>
             <text
               x={center}
-              y={center - cardinalRadius - 14}
+              y={center - cardinalRadius - 15}
               textAnchor="middle"
-              fontSize="14"
+              fontSize="16"
               fontFamily="sans-serif"
               fontWeight="900"
               fill="#0f172a"
@@ -756,9 +756,9 @@ export function PolarCircumferentialRingMap({
             </text>
             <text
               x={center}
-              y={center - cardinalRadius + 2}
+              y={center - cardinalRadius + 3}
               textAnchor="middle"
-              fontSize="14"
+              fontSize="16"
               fontFamily="sans-serif"
               fontWeight="900"
               fill="#0f172a"
@@ -772,7 +772,7 @@ export function PolarCircumferentialRingMap({
             x={center - cardinalRadius - 12}
             y={center + 5}
             textAnchor="end"
-            fontSize="14"
+            fontSize="16"
             fontFamily="sans-serif"
             fontWeight="900"
             fill="#0f172a"
@@ -783,9 +783,9 @@ export function PolarCircumferentialRingMap({
           {/* 180° at Bottom (South / 6 o'clock) */}
           <text
             x={center}
-            y={center + cardinalRadius + 18}
+            y={center + cardinalRadius + 20}
             textAnchor="middle"
-            fontSize="14"
+            fontSize="16"
             fontFamily="sans-serif"
             fontWeight="900"
             fill="#0f172a"
@@ -798,7 +798,7 @@ export function PolarCircumferentialRingMap({
             x={center + cardinalRadius + 12}
             y={center + 5}
             textAnchor="start"
-            fontSize="14"
+            fontSize="16"
             fontFamily="sans-serif"
             fontWeight="900"
             fill="#0f172a"
@@ -883,9 +883,9 @@ export function PolarCircumferentialRingMap({
           {/* Center Vessel Designation - High Contrast, Bold & Large */}
           <text
             x={center}
-            y={center - 10}
+            y={center - 12}
             textAnchor="middle"
-            fontSize="15"
+            fontSize="17"
             fontWeight="900"
             fill="#0f172a"
           >
@@ -895,7 +895,7 @@ export function PolarCircumferentialRingMap({
             x={center}
             y={center + 10}
             textAnchor="middle"
-            fontSize="13"
+            fontSize="15"
             fontWeight="800"
             fill="#1e293b"
           >
@@ -903,9 +903,9 @@ export function PolarCircumferentialRingMap({
           </text>
           <text
             x={center}
-            y={center + 28}
+            y={center + 30}
             textAnchor="middle"
-            fontSize="11.5"
+            fontSize="14"
             fontWeight="700"
             fill="#475569"
           >
