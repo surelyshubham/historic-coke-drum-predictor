@@ -154,7 +154,17 @@ export function PolarCircumferentialRingMap({
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // SVG Geometry
+  // ── Zoom State ──────────────────────────────────────────────────────────────
+  // Full-ring viewBox constant — geometry-independent so can be declared here
+  const FULL_VB = "-50 -55 720 710";
+  const [zoomedFlaw, setZoomedFlaw] = useState<TrackedPhysicalIndication | null>(null);
+  const [viewBox, setViewBox] = useState(FULL_VB);
+  const animFrameRef = useRef<number | null>(null);
+
+  // Cleanup animation frame on unmount
+  useEffect(() => () => { if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current); }, []);
+
+
   const size = 620;
   const center = size / 2;
   const outerRadius = 230; // OD surface (black boundary)
@@ -244,7 +254,64 @@ export function PolarCircumferentialRingMap({
     return `M ${x0} ${y0} A ${rOuter} ${rOuter} 0 ${largeArcFlag} 0 ${x1} ${y1} L ${x2} ${y2} A ${rInner} ${rInner} 0 ${largeArcFlag} 1 ${x3} ${y3} Z`;
   };
 
+  // ── Zoom Helpers (defined after geometry constants) ───────────────────────
+
+  /** Parse a viewBox string into [x, y, w, h] numbers */
+  const parseVB = (vb: string): [number, number, number, number] =>
+    vb.split(" ").map(Number) as [number, number, number, number];
+
+  /** Interpolate two viewBoxes by factor t ∈ [0,1] */
+  const lerpVB = (from: [number, number, number, number], to: [number, number, number, number], t: number): string =>
+    from.map((v, i) => v + (to[i] - v) * t).join(" ");
+
+  /** Compute the zoomed viewBox centered on the indication's circumferential position */
+  const getZoomedViewBox = (pi: TrackedPhysicalIndication): string => {
+    const flawLen = Math.max(120, pi.latestLength || 350);
+    const midMm = pi.circumferentialPosition + flawLen / 2;
+    const { angleRad } = mmToAngle(midMm);
+    const zoomSize = 270; // viewport size in SVG units — smaller = more zoomed in (full ring is 720×710)
+    const fx = center + midRadius * Math.cos(angleRad);
+    const fy = center + midRadius * Math.sin(angleRad);
+    return `${fx - zoomSize / 2} ${fy - zoomSize / 2} ${zoomSize} ${zoomSize}`;
+  };
+
+  /** Smoothly animate viewBox from current to target over ~380ms using rAF + easing */
+  const animateViewBox = (targetVB: string) => {
+    if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
+    // Capture current viewBox value at call time (avoids stale closure)
+    const startVB = parseVB(viewBox);
+    const endVB = parseVB(targetVB);
+    const duration = 380;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const t = Math.min(1, elapsed / duration);
+      // Ease in-out cubic
+      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      setViewBox(lerpVB(startVB, endVB, ease));
+      if (t < 1) {
+        animFrameRef.current = requestAnimationFrame(step);
+      } else {
+        animFrameRef.current = null;
+      }
+    };
+    animFrameRef.current = requestAnimationFrame(step);
+  };
+
+  /** Zoom in to a specific indication */
+  const zoomTo = (pi: TrackedPhysicalIndication) => {
+    setZoomedFlaw(pi);
+    animateViewBox(getZoomedViewBox(pi));
+  };
+
+  /** Zoom back out to the full ring view */
+  const zoomOut = () => {
+    setZoomedFlaw(null);
+    animateViewBox(FULL_VB);
+  };
+
   // 28 Slots generated consecutively anticlockwise starting from North 0°
+
   const slots = useMemo(() => {
     return Array.from({ length: TOTAL_SLOTS }, (_, idx) => {
       const slotNum = idx + 1; // 1 to 28
@@ -585,15 +652,32 @@ export function PolarCircumferentialRingMap({
       <div className={`grid grid-cols-1 ${layoutMode === "SPLIT" ? "lg:grid-cols-12" : "grid-cols-1"} gap-5 items-start`}>
         {layoutMode !== "TABLE_ONLY" && (
           <div className={`${layoutMode === "CANVAS_ONLY" ? "col-span-1 relative flex justify-center items-center py-4" : "lg:col-span-7 relative flex justify-center items-center py-2"}`}>
+            {/* Zoom-out button overlay — only visible when zoomed in */}
+            {zoomedFlaw && (
+              <button
+                onClick={zoomOut}
+                className="absolute top-2 right-2 z-10 flex items-center gap-1.5 bg-slate-900 hover:bg-sky-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-full shadow-lg border border-sky-500 transition-colors"
+              >
+                🔍 Zoom Out
+              </button>
+            )}
             <svg
               ref={svgRef}
-              viewBox="-50 -55 720 710"
-              className={`w-full ${layoutMode === "CANVAS_ONLY" ? "max-w-[700px]" : "max-w-[560px]"} h-auto select-none cursor-crosshair overflow-visible`}
+              viewBox={viewBox}
+              className={`w-full ${layoutMode === "CANVAS_ONLY" ? "max-w-[700px]" : "max-w-[560px]"} h-auto select-none cursor-crosshair overflow-visible transition-none`}
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
+              onClick={(e) => {
+                // Click directly on the SVG background (not on a flaw arc or badge) → zoom out
+                const tag = (e.target as SVGElement).tagName.toLowerCase();
+                if (zoomedFlaw && (tag === "svg" || tag === "circle" || tag === "text")) {
+                  zoomOut();
+                }
+              }}
             >
           {/* Solid Annular Vessel Shell Wall ("No crack" color from active configurable color scale) */}
           <circle
+
             cx={center}
             cy={center}
             r={midRadius}
@@ -1148,7 +1232,17 @@ export function PolarCircumferentialRingMap({
                     return (
                       <tr
                         key={pi.code}
-                        onClick={() => onSelectFlaw?.(pi)}
+                        onClick={() => {
+                          onSelectFlaw?.(pi);
+                          // Toggle zoom: clicking same row again zooms out
+                          if (layoutMode !== "TABLE_ONLY") {
+                            if (zoomedFlaw?.code === pi.code) {
+                              zoomOut();
+                            } else {
+                              zoomTo(pi);
+                            }
+                          }
+                        }}
                         onMouseEnter={() => {
                           const { angleDeg, angleRad } = mmToAngle(pi.circumferentialPosition);
                           setHoverPolar({
@@ -1165,13 +1259,17 @@ export function PolarCircumferentialRingMap({
                         }}
                         onMouseLeave={() => setHoverPolar(null)}
                         className={`cursor-pointer transition text-[11px] ${
-                          isSelected
+                          zoomedFlaw?.code === pi.code
+                            ? "bg-sky-200 font-bold text-sky-900 ring-1 ring-sky-400 ring-inset"
+                            : isSelected
                             ? "bg-sky-100 font-bold text-sky-900"
                             : isHovered
                             ? "bg-sky-50 font-medium"
                             : "hover:bg-slate-100/80"
                         }`}
+                        title={layoutMode !== "TABLE_ONLY" ? (zoomedFlaw?.code === pi.code ? "Click to zoom out" : "Click to zoom in on this indication") : undefined}
                       >
+
                         <td className="p-2 font-bold text-slate-900">#{defectNum}</td>
                         <td className="p-2 font-semibold text-slate-700">{slotName}</td>
                         <td className="p-2 font-mono text-slate-800">{pi.circumferentialPosition}mm</td>
