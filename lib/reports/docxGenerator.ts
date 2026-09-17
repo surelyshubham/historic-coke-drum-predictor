@@ -299,6 +299,21 @@ export function createDocxDocument(payload: ReportPayload): Document {
     rows: flawTableRows,
   });
 
+  // Load official SIGMA NDT logo image for DOCX header & title block
+  let logoBytes: Uint8Array | null = null;
+  if (typeof window === "undefined") {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const logoPath = path.join(process.cwd(), "public", "images", "sigma_ndt_logo.png");
+      if (fs.existsSync(logoPath)) {
+        logoBytes = new Uint8Array(fs.readFileSync(logoPath));
+      }
+    } catch (err) {
+      console.error("Could not read logo image for DOCX:", err);
+    }
+  }
+
   const doc = new Document({
     sections: [
       {
@@ -318,6 +333,16 @@ export function createDocxDocument(payload: ReportPayload): Document {
               new Paragraph({
                 alignment: AlignmentType.RIGHT,
                 children: [
+                  ...(logoBytes
+                    ? [
+                        new ImageRun({
+                          data: logoBytes,
+                          transformation: { width: 110, height: 32 },
+                          type: "png",
+                        }),
+                        new TextRun({ text: "   " }),
+                      ]
+                    : []),
                   new TextRun({
                     text: `Coke Drum HAT — ${vesselInfo.name} Engineering Assessment Report`,
                     size: 16,
@@ -360,28 +385,49 @@ export function createDocxDocument(payload: ReportPayload): Document {
           }),
         },
         children: [
-          // Title
+          // Official SIGMA NDT Logo Header
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 100, after: 150 },
+            children: logoBytes
+              ? [
+                  new ImageRun({
+                    data: logoBytes,
+                    transformation: { width: 190, height: 54 },
+                    type: "png",
+                  }),
+                ]
+              : [],
+          }),
+
+          // Document Main Title
           new Paragraph({
             heading: HeadingLevel.TITLE,
             alignment: AlignmentType.CENTER,
-            spacing: { after: 150 },
+            spacing: { after: 120 },
             children: [
               new TextRun({
                 text: "PAUT INSPECTION & REMAINING OPERATING LIFE REPORT",
                 bold: true,
-                size: 32,
+                size: 28,
                 color: "0f172a",
               }),
             ],
           }),
           new Paragraph({
             alignment: AlignmentType.CENTER,
-            spacing: { after: 300 },
+            spacing: { after: 280 },
             children: [
               new TextRun({
                 text: `Refinery Coke Drum: ${vesselInfo.name} | Unit Turnaround Assessment`,
-                size: 20,
+                size: 18,
                 color: "0284c7",
+                bold: true,
+              }),
+              new TextRun({
+                text: " • SIGMA NDT Services Inc.",
+                size: 18,
+                color: "475569",
                 bold: true,
               }),
             ],
