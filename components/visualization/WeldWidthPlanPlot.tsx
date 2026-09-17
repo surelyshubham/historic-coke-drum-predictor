@@ -1,8 +1,13 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 import { RepairZone } from "@/types/repair";
+import {
+  ColorScaleConfig,
+  getDepthGrade as resolveDepthGrade,
+  getStoredColorScale,
+} from "@/lib/colors/colorScales";
 
 interface WeldWidthPlanPlotProps {
   indications: TrackedPhysicalIndication[];
@@ -14,6 +19,9 @@ interface WeldWidthPlanPlotProps {
   nominalWallThickness?: number;
   cladThickness?: number;
   jointDegrees?: number;
+  colorScale?: ColorScaleConfig;
+  clientId?: number;
+  drumId?: number;
 }
 
 interface MiniBevelSScanPreviewProps {
@@ -181,7 +189,31 @@ export function WeldWidthPlanPlot({
   nominalWallThickness = 32.0,
   cladThickness = 3.0,
   jointDegrees = 60.0,
+  colorScale,
+  clientId,
+  drumId,
 }: WeldWidthPlanPlotProps) {
+  const [activeColorScale, setActiveColorScale] = useState<ColorScaleConfig>(() =>
+    colorScale || getStoredColorScale(clientId, drumId)
+  );
+
+  useEffect(() => {
+    if (colorScale) {
+      setActiveColorScale(colorScale);
+      return;
+    }
+    const update = () => {
+      setActiveColorScale(getStoredColorScale(clientId, drumId));
+    };
+    update();
+    window.addEventListener("paut-color-scale-updated", update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener("paut-color-scale-updated", update);
+      window.removeEventListener("storage", update);
+    };
+  }, [colorScale, clientId, drumId]);
+
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null);
   const [hoverCursor, setHoverCursor] = useState<{
     xPx: number;
@@ -249,53 +281,18 @@ export function WeldWidthPlanPlot({
     return offsets[hash % offsets.length];
   };
 
-  // Authentic Depth Severity Grading matching client reference standard:
-  // 0.5 - 3.0 mm: Yellow
-  // 3.1 - 6.0 mm: Orange
-  // 6.1 - 10.0 mm: Red
-  // > 10.0 mm: Dark Red / Maroon
+  // Dynamic Depth Severity Grading resolved from active configurable color scale:
   const getDepthGrade = (depth: number) => {
-    if (depth <= 3.0) {
-      return {
-        fillColor: "#eab308",
-        gradientId: "url(#indication-yellow)",
-        strokeColor: "#ca8a04",
-        darkColor: "#854d0e",
-        textColor: "#713f12",
-        badgeBg: "#fef9c3",
-        label: "0.5 – 3.0 mm",
-      };
-    } else if (depth <= 6.0) {
-      return {
-        fillColor: "#f97316",
-        gradientId: "url(#indication-orange)",
-        strokeColor: "#ea580c",
-        darkColor: "#9a3412",
-        textColor: "#9a3412",
-        badgeBg: "#ffedd5",
-        label: "3.1 – 6.0 mm",
-      };
-    } else if (depth <= 10.0) {
-      return {
-        fillColor: "#dc2626",
-        gradientId: "url(#indication-red)",
-        strokeColor: "#b91c1c",
-        darkColor: "#7f1d1d",
-        textColor: "#991b1b",
-        badgeBg: "#fee2e2",
-        label: "6.1 – 10.0 mm",
-      };
-    } else {
-      return {
-        fillColor: "#991b1b",
-        gradientId: "url(#indication-darkred)",
-        strokeColor: "#7f1d1d",
-        darkColor: "#450a0a",
-        textColor: "#450a0a",
-        badgeBg: "#fecaca",
-        label: "> 10.0 mm",
-      };
-    }
+    const res = resolveDepthGrade(depth, activeColorScale);
+    return {
+      fillColor: res.fillColor,
+      gradientId: "",
+      strokeColor: res.fillColor,
+      darkColor: "#0f172a",
+      textColor: res.textColor,
+      badgeBg: res.badgeBg,
+      label: res.label,
+    };
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -974,22 +971,23 @@ export function WeldWidthPlanPlot({
         {/* Depth Severity Color Scale */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Depth Severity:</span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-yellow-50 border border-yellow-300 text-yellow-900 font-semibold text-[11px]">
-            <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-600 inline-block"></span>
-            <span>0.5 – 3.0 mm</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-orange-50 border border-orange-300 text-orange-900 font-semibold text-[11px]">
-            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 border border-orange-700 inline-block"></span>
-            <span>3.1 – 6.0 mm</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-50 border border-red-300 text-red-900 font-semibold text-[11px]">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 border border-red-700 inline-block"></span>
-            <span>6.1 – 10.0 mm</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-rose-100 border border-rose-400 text-rose-950 font-bold text-[11px]">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-800 border border-red-950 inline-block"></span>
-            <span>&gt; 10.0 mm</span>
-          </span>
+          {activeColorScale.tiers.map((tier) => (
+            <span
+              key={tier.id}
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border font-semibold text-[11px]"
+              style={{
+                backgroundColor: tier.badgeBg || "#f8fafc",
+                borderColor: tier.color,
+                color: tier.textColor || "#0f172a",
+              }}
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full inline-block"
+                style={{ backgroundColor: tier.color }}
+              ></span>
+              <span>{tier.label}</span>
+            </span>
+          ))}
         </div>
 
         {/* Weld Guidelines */}

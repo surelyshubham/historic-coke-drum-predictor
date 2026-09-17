@@ -1,8 +1,13 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
 import { RepairZone } from "@/types/repair";
+import {
+  ColorScaleConfig,
+  getFlawDepthColor as resolveFlawColor,
+  getStoredColorScale,
+} from "@/lib/colors/colorScales";
 
 interface PolarCircumferentialRingMapProps {
   indications: TrackedPhysicalIndication[];
@@ -16,6 +21,9 @@ interface PolarCircumferentialRingMapProps {
   jointDegrees?: number; // default 60.0 degrees (total groove angle)
   repairZones?: RepairZone[];
   layoutMode?: "SPLIT" | "CANVAS_ONLY" | "TABLE_ONLY";
+  colorScale?: ColorScaleConfig;
+  clientId?: number;
+  drumId?: number;
 }
 
 interface PolarDefectBadgeProps {
@@ -40,25 +48,50 @@ function PolarDefectBadge({
   defectNum,
 }: PolarDefectBadgeProps) {
   const isOdFlaw = surface === "OD";
-  const numRadius = isOdFlaw ? outerRadius + 18 : innerRadius - 28;
+  // Large readable badges: single digit r=12, double digit r=14
+  const badgeRadius = defectNum >= 10 ? 14 : 12;
+  // Position OD badges cleanly outside outer ring (outerRadius=230 -> r=252)
+  // Position ID badges inside inner ring in the open center area (innerRadius=188 -> r=150)
+  const numRadius = isOdFlaw ? outerRadius + 22 : innerRadius - 38;
   const nx = center + numRadius * Math.cos(midRad);
   const ny = center + numRadius * Math.sin(midRad);
 
   return (
     <g className="pointer-events-none defect-num-badge">
+      {/* Subtle dashed leader line connecting the ring flaw location to the badge */}
+      <line
+        x1={center + (isOdFlaw ? outerRadius + 2 : innerRadius - 2) * Math.cos(midRad)}
+        y1={center + (isOdFlaw ? outerRadius + 2 : innerRadius - 2) * Math.sin(midRad)}
+        x2={nx}
+        y2={ny}
+        stroke={isSelected || isHovered ? "#0284c7" : "#64748b"}
+        strokeWidth="1.2"
+        strokeDasharray="2 2"
+        opacity="0.75"
+      />
+      {/* Outer contrast drop circle */}
       <circle
         cx={nx}
         cy={ny}
-        r="8.5"
+        r={badgeRadius + 1.5}
+        fill="#ffffff"
+      />
+      {/* Main bold badge disc */}
+      <circle
+        cx={nx}
+        cy={ny}
+        r={badgeRadius}
         fill={isSelected || isHovered ? "#0284c7" : "#0f172a"}
         stroke="#ffffff"
-        strokeWidth="1.5"
+        strokeWidth="2"
       />
+      {/* High-visibility bold defect number */}
       <text
         x={nx}
-        y={ny + 3}
+        y={ny}
         textAnchor="middle"
-        fontSize="9"
+        dominantBaseline="central"
+        fontSize={defectNum >= 10 ? "11" : "12"}
         fontWeight="900"
         fill="#ffffff"
         fontFamily="sans-serif"
@@ -81,7 +114,31 @@ export function PolarCircumferentialRingMap({
   jointDegrees = 60.0,
   repairZones = [],
   layoutMode = "SPLIT",
+  colorScale,
+  clientId,
+  drumId,
 }: PolarCircumferentialRingMapProps) {
+  const [activeColorScale, setActiveColorScale] = useState<ColorScaleConfig>(() =>
+    colorScale || getStoredColorScale(clientId, drumId)
+  );
+
+  useEffect(() => {
+    if (colorScale) {
+      setActiveColorScale(colorScale);
+      return;
+    }
+    const update = () => {
+      setActiveColorScale(getStoredColorScale(clientId, drumId));
+    };
+    update();
+    window.addEventListener("paut-color-scale-updated", update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener("paut-color-scale-updated", update);
+      window.removeEventListener("storage", update);
+    };
+  }, [colorScale, clientId, drumId]);
+
   const [hoverPolar, setHoverPolar] = useState<{
     xPx: number;
     yPx: number;
@@ -219,23 +276,9 @@ export function PolarCircumferentialRingMap({
     });
   }, [center, innerRadius, outerRadius, slotLabelRadius, slotSpanDeg]);
 
-  // Authentic Color mapping matching reference drawing:
-  // Green: No crack
-  // Yellow: 0.5 to 3mm
-  // Orange: 3.1 to 6mm
-  // Red: 6.1 to 10mm
-  // Dark Red: above 10mm
-  // Authentic Color mapping matching reference drawing:
-  // Green: No crack
-  // Yellow: 0.5 to 3mm
-  // Orange: 3.1 to 6mm
-  // Red: 6.1 to 10mm
-  // Dark Red: above 10mm
+  // Dynamic Color mapping resolved from active configurable color scale
   const getFlawDepthColor = (depth: number) => {
-    if (depth <= 3.0) return "#eab308"; // Yellow (0.5 to 3mm)
-    if (depth <= 6.0) return "#f97316"; // Orange (3.1 to 6mm)
-    if (depth <= 10.0) return "#dc2626"; // Red (6.1 to 10mm)
-    return "#991b1b"; // Dark Red (above 10mm)
+    return resolveFlawColor(depth, activeColorScale);
   };
 
   // Explicit Flaw Surface Classifier (ID vs OD vs BOTH)
@@ -426,17 +469,30 @@ export function PolarCircumferentialRingMap({
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
-          {/* Solid Light Green Annular Vessel Shell Wall ("Green: No crack" matching Client Reference Drawing - #7CFC00) */}
+          {/* Solid Annular Vessel Shell Wall ("No crack" color from active configurable color scale) */}
           <circle
             cx={center}
             cy={center}
             r={midRadius}
             fill="none"
-            stroke="#7CFC00"
+            stroke={activeColorScale.soundWallColor || "#7CFC00"}
             strokeWidth={wallThicknessPx}
           />
 
-          {/* Replaced / Repaired Weld Sections (Distinct darker green shade #4E9A06 than #7CFC00) */}
+          {/* Shaded Internal Cladding Band (Tinted Navy Band on ID side) */}
+          {effClad > 0 && (
+            <circle
+              cx={center}
+              cy={center}
+              r={innerRadius + ((effClad / nominalWallThickness) * wallThicknessPx) / 2}
+              fill="none"
+              stroke="#0284c7"
+              strokeOpacity="0.22"
+              strokeWidth={(effClad / nominalWallThickness) * wallThicknessPx}
+            />
+          )}
+
+          {/* Replaced / Repaired Weld Sections (Distinct darker green shade #4E9A06 than base wall) */}
           {repairZones?.filter(rz => !weldName || rz.weldName === "ALL" || weldName.includes(rz.weldName) || rz.weldName.includes(weldName)).map(rz => {
             const startRad = mmToAngle(rz.startMm).angleRad;
             const endRad = mmToAngle(rz.endMm).angleRad;
@@ -504,15 +560,15 @@ export function PolarCircumferentialRingMap({
             strokeWidth="2"
           />
 
-          {/* Internal Cladding Layer (Dotted Blue Concentric Circle matching S-Scan Profile - #0284c7) */}
+          {/* Internal Cladding Layer Demarcation (Prominent Dark Navy Dotted Line - #0369a1) */}
           <circle
             cx={center}
             cy={center}
             r={cladRadius}
             fill="none"
-            stroke="#0284c7"
-            strokeWidth="1.8"
-            strokeDasharray="3 3"
+            stroke="#0369a1"
+            strokeWidth="2.5"
+            strokeDasharray="4 3"
           />
 
           {/* Weld Bevel Root Guide (Subtle dashed concentric line) */}
@@ -540,14 +596,14 @@ export function PolarCircumferentialRingMap({
                 strokeWidth={s.slotNum === 1 ? "2.5" : "1.5"}
               />
 
-              {/* Slot label inside inner circumference */}
+              {/* Slot label inside inner circumference - Bold, Large & High Contrast */}
               <text
                 x={s.labelPos.x}
                 y={s.labelPos.y + 4}
                 textAnchor="middle"
-                fontSize={s.label === "L1" || s.label === "L28" ? "12" : "10"}
+                fontSize={s.label === "L1" || s.label === "L28" ? "13" : "11.5"}
                 fontFamily="sans-serif"
-                fontWeight={s.label === "L1" || s.label === "L28" ? "800" : "700"}
+                fontWeight="900"
                 fill={hoverPolar?.currentSlot === s.label ? "#0284c7" : "#0f172a"}
               >
                 {s.label}
@@ -561,16 +617,17 @@ export function PolarCircumferentialRingMap({
               180° at Bottom (South)
               270° at Right (East)
           */}
-          {/* North 0° */}
+          {/* North 0° - Completely unobstructed at 12 o'clock */}
           <g>
             <text
               x={center}
-              y={center - cardinalRadius - 12}
+              y={center - cardinalRadius - 14}
               textAnchor="middle"
-              fontSize="13"
+              fontSize="14"
               fontFamily="sans-serif"
               fontWeight="900"
               fill="#0f172a"
+              letterSpacing="0.05em"
             >
               NORTH
             </text>
@@ -578,7 +635,7 @@ export function PolarCircumferentialRingMap({
               x={center}
               y={center - cardinalRadius + 2}
               textAnchor="middle"
-              fontSize="13"
+              fontSize="14"
               fontFamily="sans-serif"
               fontWeight="900"
               fill="#0f172a"
@@ -589,10 +646,10 @@ export function PolarCircumferentialRingMap({
 
           {/* 90° at Left (West / 9 o'clock) */}
           <text
-            x={center - cardinalRadius - 10}
+            x={center - cardinalRadius - 12}
             y={center + 5}
             textAnchor="end"
-            fontSize="13"
+            fontSize="14"
             fontFamily="sans-serif"
             fontWeight="900"
             fill="#0f172a"
@@ -603,9 +660,9 @@ export function PolarCircumferentialRingMap({
           {/* 180° at Bottom (South / 6 o'clock) */}
           <text
             x={center}
-            y={center + cardinalRadius + 14}
+            y={center + cardinalRadius + 18}
             textAnchor="middle"
-            fontSize="13"
+            fontSize="14"
             fontFamily="sans-serif"
             fontWeight="900"
             fill="#0f172a"
@@ -615,10 +672,10 @@ export function PolarCircumferentialRingMap({
 
           {/* 270° at Right (East / 3 o'clock) */}
           <text
-            x={center + cardinalRadius + 10}
+            x={center + cardinalRadius + 12}
             y={center + 5}
             textAnchor="start"
-            fontSize="13"
+            fontSize="14"
             fontFamily="sans-serif"
             fontWeight="900"
             fill="#0f172a"
@@ -626,80 +683,90 @@ export function PolarCircumferentialRingMap({
             270°
           </text>
 
-          {/* Scanned Direction Curved Arrow in North-West Quadrant */}
+          {/* Scanned Direction Curved Arrow Repositioned in North-West Quadrant (Away from North 0°) */}
           <g className="scanned-direction-indicator">
             <defs>
               <marker
                 id="anticlockwise-arrow"
-                markerWidth="7"
-                markerHeight="7"
-                refX="5"
-                refY="3.5"
+                markerWidth="8"
+                markerHeight="8"
+                refX="6"
+                refY="4"
                 orient="auto"
               >
-                <polygon points="0 0, 7 3.5, 0 7" fill="#0f172a" />
+                <polygon points="0 0, 8 4, 0 8" fill="#0f172a" />
               </marker>
             </defs>
 
-            {/* Curved arrow path from ~350° to ~30° anticlockwise */}
+            {/* Curved arrow path sweeping anticlockwise in Northwest quadrant (26° to 68°) */}
             {(() => {
               const arrowRadius = outerRadius + 24;
-              const startA = degToAngleRad(352);
-              const endA = degToAngleRad(38);
+              const startA = degToAngleRad(26);
+              const endA = degToAngleRad(68);
               const pathD = describeAnticlockwiseArc(center, center, arrowRadius, startA, endA);
               return (
                 <path
                   d={pathD}
                   fill="none"
                   stroke="#0f172a"
-                  strokeWidth="2"
+                  strokeWidth="2.4"
                   markerEnd="url(#anticlockwise-arrow)"
                 />
               );
             })()}
 
-            <text
-              x={center - 90}
-              y={center - outerRadius - 38}
-              textAnchor="middle"
-              fontSize="12"
-              fontWeight="800"
-              fontFamily="sans-serif"
-              fill="#0f172a"
-            >
-              Scanned
-            </text>
-            <text
-              x={center - 90}
-              y={center - outerRadius - 22}
-              textAnchor="middle"
-              fontSize="12"
-              fontWeight="800"
-              fontFamily="sans-serif"
-              fill="#0f172a"
-            >
-              Direction
-            </text>
+            {/* Label in the Northwest space clear of North 0° */}
+            {(() => {
+              const labelRad = degToAngleRad(47);
+              const lx = center + (outerRadius + 44) * Math.cos(labelRad);
+              const ly = center + (outerRadius + 44) * Math.sin(labelRad);
+              return (
+                <g>
+                  <text
+                    x={lx}
+                    y={ly - 7}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="900"
+                    fontFamily="sans-serif"
+                    fill="#0f172a"
+                  >
+                    Scanned
+                  </text>
+                  <text
+                    x={lx}
+                    y={ly + 8}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="900"
+                    fontFamily="sans-serif"
+                    fill="#0f172a"
+                  >
+                    Direction
+                  </text>
+                </g>
+              );
+            })()}
           </g>
 
-          {/* Center Vessel Designation */}
+          {/* Center Vessel Designation - High Contrast, Bold & Large */}
           <text
             x={center}
-            y={center - 8}
+            y={center - 10}
             textAnchor="middle"
-            fontSize="13"
-            fontWeight="bold"
-            fill="#334155"
+            fontSize="15"
+            fontWeight="900"
+            fill="#0f172a"
           >
             {drumName}
           </text>
           <text
             x={center}
-            y={center + 12}
+            y={center + 10}
             textAnchor="middle"
-            fontSize="11"
-            fontWeight="600"
-            fill="#64748b"
+            fontSize="13"
+            fontWeight="800"
+            fill="#1e293b"
           >
             {weldName}
           </text>
@@ -707,10 +774,11 @@ export function PolarCircumferentialRingMap({
             x={center}
             y={center + 28}
             textAnchor="middle"
-            fontSize="10"
-            fill="#94a3b8"
+            fontSize="11.5"
+            fontWeight="700"
+            fill="#475569"
           >
-            {totalCircumferenceMm ? `${(totalCircumferenceMm / 1000).toFixed(1)} m Perimeter` : ""}
+            {totalCircumferenceMm ? `${(totalCircumferenceMm / 1000).toFixed(2)} m Perimeter` : ""}
           </text>
 
           {/* Render Indication Defect Patches Proportionally Depth-Wise strictly confined within the Annular Ring */}
@@ -843,13 +911,13 @@ export function PolarCircumferentialRingMap({
                     strokeWidth="1.5"
                     strokeDasharray="2 2"
                   />
-                  {/* Clad dotted arc crossing over the marked defect */}
+                  {/* Clad dotted arc crossing over the marked defect (Dark Navy - #0369a1) */}
                   <path
                     d={describeAnticlockwiseArc(center, center, cladRadius, startRad, endRad)}
                     fill="none"
-                    stroke="#0284c7"
-                    strokeWidth="1.8"
-                    strokeDasharray="3 3"
+                    stroke="#0369a1"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 3"
                   />
                 </g>
 
@@ -999,13 +1067,16 @@ export function PolarCircumferentialRingMap({
         )}
       </div>
 
-      {/* Severity Color Legend Matching Reference Drawing Exactly */}
+      {/* Severity Color Legend Matching Reference Drawing & Active Color Scale */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-700 pt-2 border-t border-slate-200">
         <div className="flex flex-wrap items-center gap-3">
           <span className="font-bold text-slate-900">Depth Legend:</span>
 
           <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-            <span className="w-3.5 h-3.5 rounded-xs inline-block border border-slate-400/40" style={{ backgroundColor: "#7CFC00" }}></span>
+            <span
+              className="w-3.5 h-3.5 rounded-xs inline-block border border-slate-400/40"
+              style={{ backgroundColor: activeColorScale.soundWallColor || "#7CFC00" }}
+            ></span>
             <span className="font-medium">No crack (Sound Wall)</span>
           </span>
 
@@ -1015,40 +1086,22 @@ export function PolarCircumferentialRingMap({
           </span>
 
           <span className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded border border-blue-300">
-            <span className="w-5 h-0 border-t-2 border-dashed border-sky-600 inline-block"></span>
-            <span className="font-bold text-sky-900">Clad Layer ({effClad.toFixed(1)}mm ID)</span>
+            <span className="w-5 h-0 border-t-2 border-dashed border-sky-700 inline-block"></span>
+            <span className="font-bold text-sky-950">Clad Layer ({effClad.toFixed(1)}mm ID)</span>
           </span>
 
-          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-            <span className="w-3.5 h-3.5 bg-yellow-500 rounded-xs inline-block"></span>
-            <span className="font-medium">0.5 to 3mm</span>
-          </span>
-
-          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-            <span className="w-3.5 h-3.5 bg-orange-500 rounded-xs inline-block"></span>
-            <span className="font-medium">3.1 to 6mm</span>
-          </span>
-
-          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-            <span className="w-3.5 h-3.5 bg-red-600 rounded-xs inline-block"></span>
-            <span className="font-medium">6.1 to 10mm</span>
-          </span>
-
-          <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-            <span className="w-3.5 h-3.5 bg-red-900 rounded-xs inline-block"></span>
-            <span className="font-medium">above 10mm</span>
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3 text-[11px] font-semibold">
-          <span className="flex items-center gap-1 text-amber-800">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block border border-amber-800"></span>
-            Outer Ring Edge: OD Surface (External)
-          </span>
-          <span className="flex items-center gap-1 text-red-700">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block border border-red-900"></span>
-            Inner Ring Edge: ID Surface (Internal / Clad)
-          </span>
+          {activeColorScale.tiers.map((tier) => (
+            <span
+              key={tier.id}
+              className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-200"
+            >
+              <span
+                className="w-3.5 h-3.5 rounded-xs inline-block"
+                style={{ backgroundColor: tier.color }}
+              ></span>
+              <span className="font-medium">{tier.label}</span>
+            </span>
+          ))}
         </div>
       </div>
     </div>

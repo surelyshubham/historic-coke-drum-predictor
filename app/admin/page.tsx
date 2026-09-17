@@ -1,4 +1,5 @@
 import { Settings, Shield, Key, Database, RefreshCw } from "lucide-react";
+import { ColorScaleAdminManager } from "@/components/admin/ColorScaleAdminManager";
 
 export default function AdminSettingsPage() {
   return (
@@ -6,9 +7,12 @@ export default function AdminSettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Platform Settings & Administration</h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          System configurations, Cloudflare R2 storage credentials, and RBAC policies
+          System configurations, PAUT color scale calibrations, Cloudflare R2 storage credentials, and RBAC policies
         </p>
       </div>
+
+      {/* PAUT Defect Color Scale Management */}
+      <ColorScaleAdminManager />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
