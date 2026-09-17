@@ -233,6 +233,7 @@ export function WeldWidthPlanPlot({
   const margin = { top: 40, right: 35, bottom: 55, left: 65 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
+  const effClad = Math.max(0, cladThickness ?? 3.0);
 
   // Compute X domain (ScanLength)
   const xDomain = useMemo(() => {
@@ -245,9 +246,95 @@ export function WeldWidthPlanPlot({
     return [Math.floor(minX / 10) * 10, Math.ceil(maxX / 10) * 10];
   }, [indications, zoomRange]);
 
-  // Y domain (Index Offset mm): fixed symmetric around 0 mm (e.g. -12 to +12 mm)
-  const yMin = -12;
-  const yMax = 12;
+  // Convert indication text position / offset (e.g. "+4.5mm", "-5.0mm", "30MM BT", "TT", etc.) to index offset mm
+  const getFlawOffset = useMemo(() => {
+    return (pi: TrackedPhysicalIndication): number => {
+      // 1. Check if explicit numeric offsetMm property is provided
+      if (typeof pi.offsetMm === "number" && !isNaN(pi.offsetMm)) {
+        return pi.offsetMm;
+      }
+
+      // 2. Extract numeric offset from string in weldPosition or locationText (e.g. "-5.5MM", "8MM BT", "+4.0MM")
+      const text = `${pi.weldPosition || ""} ${pi.locationText || ""}`.toUpperCase().trim();
+      const signedMatch = text.match(/([+-]?\d+(?:\.\d+)?)\s*MM/);
+      if (signedMatch) {
+        const val = parseFloat(signedMatch[1]);
+        if (!isNaN(val)) {
+          if (text.includes("BT") || text.includes("BOTTOM")) {
+            return val > 0 ? -val : val;
+          }
+          return val;
+        }
+      }
+
+      // 3. Positional fallbacks matching landmark toes
+      if (text.includes("BT") || text.includes("BOTTOM")) return -4.5;
+      if (text.includes("TT") || text.includes("TOP")) return 4.5;
+      if (text.includes("CL") || text.includes("CENTER")) return 0.0;
+
+      // 4. Deterministic distributed fallback offsets per flaw code
+      const hash = Math.abs(pi.code.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0));
+      const offsets = [-4.5, 3.5, -2.0, 2.0, -5.5, 4.0, 0.0];
+      return offsets[hash % offsets.length];
+    };
+  }, []);
+
+  // Dynamic Y domain (Index Offset mm) & Bevel Landmark calculations
+  const { yMin, yMax, cladHalfWidthMm, odHalfWidthMm, idHalfWidthMm } = useMemo(() => {
+    const grooveAngle = jointDegrees || 60.0;
+    const halfAngleRad = ((grooveAngle / 2) * Math.PI) / 180;
+    const rootDepthMm = 11.5 * (nominalWallThickness / 32.0);
+    const odDepthMm = Math.max(0, nominalWallThickness - rootDepthMm);
+
+    // Bevel half widths at OD surface (Top Toe), ID surface (Bottom Toe), and Clad Layer
+    const odHalfWidth = 1.8 + odDepthMm * Math.tan(halfAngleRad);
+    const idHalfWidth = 1.8 + rootDepthMm * Math.tan(halfAngleRad);
+    const effClad = Math.max(0, cladThickness ?? 3.0);
+    const cladDepthFromId = Math.min(rootDepthMm, effClad);
+    const cladHalfWidth = 1.8 + (rootDepthMm - cladDepthFromId) * Math.tan(halfAngleRad);
+
+    // Max landmark boundary
+    const maxLandmark = Math.max(
+      hazHalfWidthMm,
+      weldCapHalfWidthMm,
+      odHalfWidth,
+      idHalfWidth,
+      cladHalfWidth
+    );
+
+    let maxOff = maxLandmark;
+    let minOff = -maxLandmark;
+
+    if (indications.length > 0) {
+      indications.forEach((pi) => {
+        const off = getFlawOffset(pi);
+        if (off + 3.0 > maxOff) maxOff = off + 3.0;
+        if (off - 3.0 < minOff) minOff = off - 3.0;
+      });
+    }
+
+    // Dynamic symmetric Y limits with comfortable padding
+    const limit = Math.max(10, Math.ceil(Math.max(Math.abs(maxOff), Math.abs(minOff)) + 2));
+    
+    return {
+      yMin: -limit,
+      yMax: limit,
+      cladHalfWidthMm: Number(cladHalfWidth.toFixed(1)),
+      odHalfWidthMm: Number(odHalfWidth.toFixed(1)),
+      idHalfWidthMm: Number(idHalfWidth.toFixed(1)),
+    };
+  }, [indications, getFlawOffset, weldCapHalfWidthMm, hazHalfWidthMm, nominalWallThickness, cladThickness, jointDegrees]);
+
+  // Dynamic Y-axis Ticks
+  const yTicks = useMemo(() => {
+    const range = yMax - yMin;
+    const step = range > 36 ? 10 : range > 18 ? 5 : 2.5;
+    const ticks: number[] = [];
+    for (let v = Math.ceil(yMin / step) * step; v <= Math.floor(yMax / step) * step; v += step) {
+      ticks.push(Number(v.toFixed(1)));
+    }
+    return ticks;
+  }, [yMin, yMax]);
 
   const scaleX = (val: number) => {
     const span = xDomain[1] - xDomain[0] || 1;
@@ -267,18 +354,6 @@ export function WeldWidthPlanPlot({
   const invertY = (yPx: number) => {
     const ratio = (margin.top + innerHeight - yPx) / innerHeight;
     return yMin + ratio * (yMax - yMin);
-  };
-
-  // Convert indication text position (e.g. "30MM BT" or default) to index offset mm
-  const getFlawOffset = (pi: TrackedPhysicalIndication) => {
-    const text = (pi.weldPosition || "").toUpperCase();
-    if (text.includes("BT") || text.includes("BOTTOM")) return -4.5;
-    if (text.includes("TT") || text.includes("TOP")) return 3.5;
-    if (text.includes("CL") || text.includes("CENTER")) return 0.0;
-    // Alternate deterministic offsets for visual distinction
-    const hash = Math.abs(pi.code.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0));
-    const offsets = [-0.8, -4.5, 0.5, -1.2, 3.2, -0.5];
-    return offsets[hash % offsets.length];
   };
 
   // Dynamic Depth Severity Grading resolved from active configurable color scale:
@@ -580,6 +655,30 @@ export function WeldWidthPlanPlot({
             strokeDasharray="5 3"
           />
 
+          {/* Internal Cladding Layer ID Boundaries (Dark Navy / Sky Blue Dotted Lines - #0284c7) */}
+          {effClad > 0 && (
+            <>
+              <line
+                x1={margin.left}
+                y1={scaleY(cladHalfWidthMm)}
+                x2={margin.left + innerWidth}
+                y2={scaleY(cladHalfWidthMm)}
+                stroke="#0284c7"
+                strokeWidth="1.8"
+                strokeDasharray="3 3"
+              />
+              <line
+                x1={margin.left}
+                y1={scaleY(-cladHalfWidthMm)}
+                x2={margin.left + innerWidth}
+                y2={scaleY(-cladHalfWidthMm)}
+                stroke="#0284c7"
+                strokeWidth="1.8"
+                strokeDasharray="3 3"
+              />
+            </>
+          )}
+
           {/* Weld Centerline (0 mm) */}
           <line
             x1={margin.left}
@@ -591,8 +690,8 @@ export function WeldWidthPlanPlot({
             strokeDasharray="8 3 2 3"
           />
 
-          {/* Y-Axis Ticks & Labels */}
-          {[-10, -5, 0, 5, 10].map((val) => {
+          {/* Dynamic Y-Axis Ticks & Labels */}
+          {yTicks.map((val) => {
             const y = scaleY(val);
             return (
               <g key={val}>
@@ -613,7 +712,7 @@ export function WeldWidthPlanPlot({
                   fill="#1e293b"
                   fontWeight="600"
                 >
-                  {val}
+                  {val > 0 ? `+${val}` : val}
                 </text>
               </g>
             );
@@ -1004,6 +1103,12 @@ export function WeldWidthPlanPlot({
             <span className="w-4 h-0.5 border-t-2 border-dashed border-slate-500 inline-block"></span>
             <span>HAZ (±6 mm)</span>
           </span>
+          {effClad > 0 && (
+            <span className="flex items-center gap-1.5 bg-blue-50/70 px-2 py-0.5 rounded border border-blue-200">
+              <span className="w-4 h-0 border-t-2 border-dashed border-sky-600 inline-block"></span>
+              <span className="font-bold text-sky-950">Clad Layer ID (±{cladHalfWidthMm.toFixed(1)} mm)</span>
+            </span>
+          )}
           <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 border border-slate-300 font-bold text-slate-800">
             <span className="w-2.5 h-2.5 rounded-xs bg-[#e2e8f0] border border-slate-500 inline-block"></span>
             <span>Replaced / Repaired Steel</span>
