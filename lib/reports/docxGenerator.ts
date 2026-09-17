@@ -17,6 +17,7 @@ import {
 } from "docx";
 import { ReportPayload } from "./reportTypes";
 import { DEFAULT_COLOR_SCALE, ColorScaleConfig } from "@/lib/colors/colorScales";
+import { SIGMA_NDT_LOGO_BASE64 } from "./logoBase64";
 
 function parseBase64Image(dataUrl?: string): Uint8Array | null {
   if (!dataUrl) return null;
@@ -673,20 +674,8 @@ export function createDocxDocument(payload: ReportPayload): Document {
     rows: flawTableRows,
   });
 
-  // Load official SIGMA NDT logo image for DOCX header & title block
-  let logoBytes: Uint8Array | null = null;
-  if (typeof window === "undefined") {
-    try {
-      const fs = require("fs");
-      const path = require("path");
-      const logoPath = path.join(process.cwd(), "public", "images", "sigma_ndt_logo.png");
-      if (fs.existsSync(logoPath)) {
-        logoBytes = new Uint8Array(fs.readFileSync(logoPath));
-      }
-    } catch (err) {
-      console.error("Could not read logo image for DOCX:", err);
-    }
-  }
+  // Load official SIGMA NDT logo image for DOCX header & title block (guaranteed in both Browser and Node.js)
+  const logoBytes = parseBase64Image(SIGMA_NDT_LOGO_BASE64);
 
   const doc = new Document({
     sections: [
@@ -704,23 +693,77 @@ export function createDocxDocument(payload: ReportPayload): Document {
         headers: {
           default: new Header({
             children: [
-              new Paragraph({
-                alignment: AlignmentType.RIGHT,
-                children: [
-                  ...(logoBytes
-                    ? [
-                        new ImageRun({
-                          data: logoBytes,
-                          transformation: { width: 110, height: 32 },
-                          type: "png",
-                        }),
-                        new TextRun({ text: "   " }),
-                      ]
-                    : []),
-                  new TextRun({
-                    text: `Coke Drum HAT — ${vesselInfo.name} Engineering Assessment Report`,
-                    size: 16,
-                    color: "64748b",
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                borders: {
+                  top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                  bottom: { style: BorderStyle.SINGLE, size: 6, color: "0284c7" },
+                  left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                  right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                },
+                rows: [
+                  new TableRow({
+                    children: [
+                      // Left Column: Official SIGMA NDT Logo
+                      new TableCell({
+                        width: { size: 30, type: WidthType.PERCENTAGE },
+                        borders: {
+                          top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                          bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                          left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                          right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                        },
+                        children: [
+                          new Paragraph({
+                            alignment: AlignmentType.LEFT,
+                            children: logoBytes
+                              ? [
+                                  new ImageRun({
+                                    data: logoBytes,
+                                    transformation: { width: 140, height: 38 },
+                                    type: "png",
+                                  }),
+                                ]
+                              : [],
+                          }),
+                        ],
+                      }),
+                      // Right Column: Report Running Header Titles
+                      new TableCell({
+                        width: { size: 70, type: WidthType.PERCENTAGE },
+                        borders: {
+                          top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                          bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                          left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                          right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                        },
+                        children: [
+                          new Paragraph({
+                            alignment: AlignmentType.RIGHT,
+                            spacing: { after: 30 },
+                            children: [
+                              new TextRun({
+                                text: `Coke Drum HAT — ${vesselInfo.name} Engineering Assessment Report`,
+                                bold: true,
+                                size: 16,
+                                color: "0f172a",
+                              }),
+                            ],
+                          }),
+                          new Paragraph({
+                            alignment: AlignmentType.RIGHT,
+                            children: [
+                              new TextRun({
+                                text: "SIGMA NDT Services Inc. • Phased Array Ultrasonic Testing Report",
+                                size: 14,
+                                color: "64748b",
+                                bold: true,
+                              }),
+                            ],
+                          }),
+                        ],
+                      }),
+                    ],
                   }),
                 ],
               }),
@@ -759,7 +802,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
           }),
         },
         children: [
-          // Official SIGMA NDT Logo Header
+          // Official SIGMA NDT Logo Header on Document Cover
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { before: 100, after: 150 },
@@ -767,7 +810,7 @@ export function createDocxDocument(payload: ReportPayload): Document {
               ? [
                   new ImageRun({
                     data: logoBytes,
-                    transformation: { width: 190, height: 54 },
+                    transformation: { width: 210, height: 58 },
                     type: "png",
                   }),
                 ]

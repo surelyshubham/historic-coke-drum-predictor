@@ -1462,7 +1462,7 @@ export default function ReportsPage() {
             return (
               <div
                 key={weldName}
-                className="bg-slate-50/40 border border-slate-300 rounded-2xl p-5 sm:p-7 space-y-7 shadow-xs"
+                className="bg-slate-50/40 border border-slate-300 rounded-2xl p-5 sm:p-7 space-y-7 shadow-xs print:break-before-page print:bg-white print:border-none print:shadow-none print:p-0"
               >
                 {/* Running Page Header Banner with SIGMA NDT Logo */}
                 <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 bg-white p-3.5 rounded-xl border border-slate-200">
