@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import Link from "next/link";
 import { getReportData, parseUploadedExcelReportData } from "./actions";
 import { ReportPayload, ReportIndicationItem, ReportSectionConfig } from "@/lib/reports/reportTypes";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
@@ -31,7 +32,8 @@ import {
   FileSpreadsheet,
   XCircle,
   Sparkles,
-  Database
+  Database,
+  Palette
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { 
@@ -998,6 +1000,15 @@ export default function ReportsPage() {
               )}
             </button>
 
+            <Link
+              href="/admin"
+              className="flex items-center gap-1.5 px-3 py-2 bg-violet-50 hover:bg-violet-100 text-violet-800 border border-violet-200 rounded-lg text-xs font-bold transition shadow-2xs"
+              title="Configure PAUT Severity Color Codes & Scale"
+            >
+              <Palette size={14} className="text-violet-600" />
+              <span>Color Codes</span>
+            </Link>
+
             <button
               onClick={handlePrint}
               className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer"
@@ -1226,19 +1237,21 @@ export default function ReportsPage() {
       {/* Printable Engineering Document Container */}
       <div className="bg-white border border-slate-300 rounded-xl shadow-md p-6 sm:p-10 space-y-8 print:border-none print:shadow-none print:p-0">
         
-        {/* Document Header & Formal Title */}
-        <div className="border-b-2 border-slate-800 pb-5 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-sky-700 text-white font-black text-lg flex items-center justify-center">
-                CD
-              </div>
-              <div>
+        {/* Document Header & Formal Title with Official SIGMA NDT Logo */}
+        <div className="border-b-2 border-slate-900 pb-5 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <img
+                src="/images/sigma_ndt_logo.png"
+                alt="SIGMA NDT Services Inc."
+                className="h-12 w-auto object-contain"
+              />
+              <div className="border-l-2 border-slate-300 pl-4">
                 <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                  PAUT INSPECTION & REMAINING OPERATING LIFE REPORT
+                  PAUT INSPECTION &amp; REMAINING OPERATING LIFE REPORT
                 </h2>
-                <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
-                  API 579-1 / ASME FFS-1 Fitness-For-Service Assessment
+                <p className="text-xs text-slate-600 uppercase tracking-widest font-bold">
+                  API 579-1 / ASME FFS-1 Fitness-For-Service Assessment • SIGMA NDT Services Inc.
                 </p>
               </div>
             </div>
@@ -1429,6 +1442,29 @@ export default function ReportsPage() {
                 key={weldName}
                 className="bg-slate-50/40 border border-slate-300 rounded-2xl p-5 sm:p-7 space-y-7 shadow-xs"
               >
+                {/* Running Page Header Banner with SIGMA NDT Logo */}
+                <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 bg-white p-3.5 rounded-xl border border-slate-200">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src="/images/sigma_ndt_logo.png"
+                      alt="SIGMA NDT Services Inc."
+                      className="h-8 w-auto object-contain"
+                    />
+                    <div className="border-l border-slate-300 pl-3">
+                      <span className="text-xs font-extrabold text-slate-900 tracking-tight block">
+                        SIGMA NDT Services Inc. • Advanced PAUT Engineering Report
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-semibold">
+                        Equipment: {vesselInfo.name} ({vesselInfo.clientName}) • Joint: Circumferential Seam {weldName}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right text-[10px] font-mono text-slate-600 hidden sm:block">
+                    <p className="font-bold text-slate-900">DOC-REF: HAT-{vesselInfo.name}-{weldName}</p>
+                    <p>Weld Assessment Section 2.{weldIdx + 1}</p>
+                  </div>
+                </div>
+
                 {/* Weld Seam Header Banner */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 bg-white p-4 rounded-xl border">
                   <div className="flex items-center gap-3">

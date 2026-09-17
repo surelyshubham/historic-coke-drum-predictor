@@ -35,13 +35,17 @@ export function Sidebar({ role }: { role: string }) {
 
   return (
     <aside className="w-64 bg-sky-50/70 text-slate-900 flex flex-col h-screen border-r border-slate-200 shrink-0 select-none">
-      {/* Platform Branding */}
-      <div className="p-6 border-b border-slate-200/60 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-sky-600 flex items-center justify-center text-white font-bold shadow-xs">
-          CD
-        </div>
-        <div>
-          <h1 className="text-base font-bold text-sky-900 leading-tight">Coke Drum HAT</h1>
+      {/* Platform Branding with Official SIGMA NDT Logo */}
+      <div className="p-4 border-b border-slate-200/60 flex flex-col items-start gap-2 bg-white/50">
+        <Link href="/dashboard" className="w-full flex items-center justify-center p-1 bg-white rounded-lg border border-slate-200/80 shadow-2xs">
+          <img
+            src="/images/sigma_ndt_logo.png"
+            alt="SIGMA NDT Services Inc."
+            className="h-9 w-auto object-contain"
+          />
+        </Link>
+        <div className="px-1">
+          <h1 className="text-xs font-extrabold text-slate-800 tracking-tight">Coke Drum HAT</h1>
           <p className="text-[10px] text-slate-500 font-medium">PAUT Historical Analysis</p>
         </div>
       </div>
@@ -98,15 +102,13 @@ export function Sidebar({ role }: { role: string }) {
         </Link>
       </nav>
 
-      {/* Footer Settings */}
-      {isMaster && (
-        <div className="p-3 border-t border-slate-200/60">
-          <Link href="/admin" className={navLinkClass("/admin")}>
-            <Settings size={18} />
-            <span>Settings & Admin</span>
-          </Link>
-        </div>
-      )}
+      {/* Footer Settings & Color Codes */}
+      <div className="p-3 border-t border-slate-200/60">
+        <Link href="/admin" className={navLinkClass("/admin")}>
+          <Settings size={18} />
+          <span>Color Codes &amp; Settings</span>
+        </Link>
+      </div>
     </aside>
   );
 }

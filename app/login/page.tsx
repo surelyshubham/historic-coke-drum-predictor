@@ -5,10 +5,17 @@ import { redirect } from "next/navigation";
 export default function LoginPage() {
   return (
     <div className="flex h-screen items-center justify-center bg-slate-50">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-sky-700">Coke Drum HAT</h1>
-          <p className="mt-2 text-sm text-slate-500">Sign in to your account</p>
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="mb-6 text-center flex flex-col items-center">
+          <div className="mb-4 flex items-center justify-center p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+            <img
+              src="/images/sigma_ndt_logo.png"
+              alt="SIGMA NDT Services Inc."
+              className="h-12 w-auto object-contain"
+            />
+          </div>
+          <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Coke Drum HAT Platform</h1>
+          <p className="mt-1 text-xs text-slate-500">PAUT Historical Analysis &amp; Tracking System</p>
         </div>
         
         <form
