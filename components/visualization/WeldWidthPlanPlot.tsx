@@ -380,36 +380,66 @@ export function WeldWidthPlanPlot({
       cladHalfWidth
     );
 
-    let maxOff = maxLandmark;
-    let minOff = -maxLandmark;
+    // Baseline minimum display band ensuring weld cap and HAZ are always clearly visible with padding
+    const minBandHalf = Math.max(hazHalfWidthMm + 4, 10);
+    let maxOff = minBandHalf;
+    let minOff = -minBandHalf;
 
     if (indications.length > 0) {
       indications.forEach((pi) => {
         const off = getFlawOffset(pi);
-        if (off + 3.0 > maxOff) maxOff = off + 3.0;
-        if (off - 3.0 < minOff) minOff = off - 3.0;
+        if (off + 4.0 > maxOff) maxOff = off + 4.0;
+        if (off - 4.0 < minOff) minOff = off - 4.0;
       });
     }
 
-    // Dynamic symmetric Y limits with comfortable padding
-    const limit = Math.max(10, Math.ceil(Math.max(Math.abs(maxOff), Math.abs(minOff)) + 2));
+    // Adaptive step sizing based on the actual extent of indications
+    const rawSpan = maxOff - minOff;
+    let step = 10;
+    if (rawSpan <= 25) step = 5;
+    else if (rawSpan <= 50) step = 10;
+    else if (rawSpan <= 80) step = 15;
+    else if (rawSpan <= 120) step = 20;
+    else step = 25;
+
+    const roundedMin = Math.floor(minOff / step) * step;
+    const roundedMax = Math.ceil(maxOff / step) * step;
     
     return {
-      yMin: -limit,
-      yMax: limit,
+      yMin: roundedMin,
+      yMax: roundedMax,
       cladHalfWidthMm: Number(cladHalfWidth.toFixed(1)),
       odHalfWidthMm: Number(odHalfWidth.toFixed(1)),
       idHalfWidthMm: Number(idHalfWidth.toFixed(1)),
     };
   }, [indications, getFlawOffset, weldCapHalfWidthMm, hazHalfWidthMm, nominalWallThickness, cladThickness, jointDegrees]);
 
-  // Dynamic Y-axis Ticks
+  // Smart Adaptive Y-axis Ticks with nice intervals (customized based on results, not fixed to 10)
   const yTicks = useMemo(() => {
     const range = yMax - yMin;
-    const step = range > 36 ? 10 : range > 18 ? 5 : 2.5;
+    if (range <= 0) return [0];
+
+    // Select candidate step that produces clean intervals (targeting ~5 to 9 ticks)
+    const candidates = [2, 5, 10, 15, 20, 25, 30, 50];
+    let chosenStep = 10;
+    for (const s of candidates) {
+      const count = range / s;
+      if (count >= 4 && count <= 9) {
+        chosenStep = s;
+        break;
+      }
+    }
+
     const ticks: number[] = [];
-    for (let v = Math.ceil(yMin / step) * step; v <= Math.floor(yMax / step) * step; v += step) {
-      ticks.push(Number(v.toFixed(1)));
+    const start = Math.floor(yMin / chosenStep) * chosenStep;
+    const end = Math.ceil(yMax / chosenStep) * chosenStep;
+    for (let v = start; v <= end; v += chosenStep) {
+      const cleanVal = Math.round(v * 10) / 10;
+      ticks.push(cleanVal);
+    }
+    if (!ticks.includes(0) && yMin <= 0 && yMax >= 0) {
+      ticks.push(0);
+      ticks.sort((a, b) => a - b);
     }
     return ticks;
   }, [yMin, yMax]);
@@ -632,6 +662,46 @@ export function WeldWidthPlanPlot({
             stroke="#94a3b8"
             strokeWidth="1.5"
           />
+
+          {/* Fine 0.5px Dotted Engineering Grid (Both Horizontal & Vertical) */}
+          <g className="fine-grid-guidelines" pointerEvents="none">
+            {/* Vertical Dotted Lines for each X section (ScanLength) */}
+            {xTicks.map((val) => {
+              const x = scaleX(val);
+              if (x <= margin.left + 1 || x >= margin.left + innerWidth - 1) return null;
+              return (
+                <line
+                  key={`v-grid-${val}`}
+                  x1={x}
+                  y1={margin.top}
+                  x2={x}
+                  y2={margin.top + innerHeight}
+                  stroke="#cbd5e1"
+                  strokeWidth="0.5"
+                  strokeDasharray="2 2"
+                />
+              );
+            })}
+
+            {/* Horizontal Dotted Lines for each Y unit (Index Offset) */}
+            {yTicks.map((val) => {
+              if (val === 0) return null; // Centerline has its own prominent green line
+              const y = scaleY(val);
+              if (y <= margin.top + 1 || y >= margin.top + innerHeight - 1) return null;
+              return (
+                <line
+                  key={`h-grid-${val}`}
+                  x1={margin.left}
+                  y1={y}
+                  x2={margin.left + innerWidth}
+                  y2={y}
+                  stroke="#cbd5e1"
+                  strokeWidth="0.5"
+                  strokeDasharray="2 2"
+                />
+              );
+            })}
+          </g>
 
           {/* Replaced / Repaired Sections (Noticeably darker shade than #f8fafc: #e2e8f0) */}
           {repairZones?.map((rz) => {

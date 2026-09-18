@@ -16,7 +16,7 @@ import {
   ImageRun,
 } from "docx";
 import { ReportPayload } from "./reportTypes";
-import { DEFAULT_COLOR_SCALE, ColorScaleConfig } from "@/lib/colors/colorScales";
+import { DEFAULT_COLOR_SCALE, ColorScaleConfig } from "../colors/colorScales";
 import { SIGMA_NDT_LOGO_BASE64 } from "./logoBase64";
 
 function parseBase64Image(dataUrl?: string): Uint8Array | null {
