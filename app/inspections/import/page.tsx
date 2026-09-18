@@ -28,6 +28,13 @@ import { WeldWidthPlanPlot } from "@/components/visualization/WeldWidthPlanPlot"
 import { PolarCircumferentialRingMap } from "@/components/visualization/PolarCircumferentialRingMap";
 import { WeldBevelSScanProfile } from "@/components/visualization/WeldBevelSScanProfile";
 import { HistoricalMeasurement } from "@/lib/prediction/growthModel";
+import { 
+  BevelJointType, 
+  detectBevelTypeFromWeldName, 
+  getBevelDefinition, 
+  ALL_BEVEL_TYPES, 
+  BEVEL_DEFINITIONS 
+} from "@/lib/bevel/bevelClassifier";
 import Link from "next/link";
 import { 
   Upload, 
@@ -97,7 +104,7 @@ export default function ImportWizardPage() {
   const [masterJointDegrees, setMasterJointDegrees] = useState<string>("60.0");
 
   // Per-Weld Specifications: individual entry for each weld seam (e.g. C1, C2)
-  const [weldSpecs, setWeldSpecs] = useState<Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string }>>({});
+  const [weldSpecs, setWeldSpecs] = useState<Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string; bevelType?: BevelJointType }>>({});
 
   // Quick Tuner Modal Local State
   const [specModalWall, setSpecModalWall] = useState<string>("32.0");
@@ -211,12 +218,13 @@ export default function ImportWizardPage() {
           setMasterJointDegrees(String(ds.jointDegrees));
         }
         if (ds.weldSpecs) {
-          const restored: Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string }> = {};
+          const restored: Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string; bevelType?: BevelJointType }> = {};
           Object.entries(ds.weldSpecs).forEach(([w, spec]) => {
             restored[w] = {
               wallThickness: String(spec.nominalWallThickness),
               cladThickness: String(spec.cladThickness),
               jointDegrees: String(spec.jointDegrees),
+              bevelType: spec.bevelType || detectBevelTypeFromWeldName(w),
             };
           });
           setWeldSpecs(restored);
@@ -493,10 +501,13 @@ export default function ImportWizardPage() {
         let changed = false;
         availableWeldsForSelectedDrums.forEach((w) => {
           if (!next[w]) {
+            const autoBevel = detectBevelTypeFromWeldName(w);
+            const def = getBevelDefinition(autoBevel);
             next[w] = {
-              wallThickness: masterWallThickness || String(nominalWallThickness),
-              cladThickness: masterCladThickness || String(cladThickness),
-              jointDegrees: masterJointDegrees || String(jointDegrees),
+              wallThickness: masterWallThickness || String(def.defaultWallThicknessMm || nominalWallThickness),
+              cladThickness: masterCladThickness || String(def.defaultCladThicknessMm),
+              jointDegrees: masterJointDegrees || String(def.grooveAngleDeg),
+              bevelType: autoBevel,
             };
             changed = true;
           }
@@ -508,6 +519,7 @@ export default function ImportWizardPage() {
 
   // Get numeric specifications for a given weld seam (or fallback to master/defaults)
   const getNumericWeldSpec = (weldKey?: string | null) => {
+    const autoBevel = detectBevelTypeFromWeldName(weldKey);
     if (weldKey && weldSpecs[weldKey]) {
       const spec = weldSpecs[weldKey];
       const wall = parseFloat(spec.wallThickness);
@@ -517,12 +529,15 @@ export default function ImportWizardPage() {
         wallThickness: !isNaN(wall) && wall > 0 ? wall : nominalWallThickness,
         cladThickness: !isNaN(clad) && clad >= 0 ? clad : cladThickness,
         jointDegrees: !isNaN(deg) && deg > 0 ? deg : jointDegrees,
+        bevelType: spec.bevelType || autoBevel,
       };
     }
+    const def = getBevelDefinition(autoBevel);
     return {
-      wallThickness: nominalWallThickness,
-      cladThickness: cladThickness,
-      jointDegrees: jointDegrees,
+      wallThickness: def.defaultWallThicknessMm || nominalWallThickness,
+      cladThickness: def.defaultCladThicknessMm,
+      jointDegrees: def.grooveAngleDeg || jointDegrees,
+      bevelType: autoBevel,
     };
   };
 
@@ -534,19 +549,72 @@ export default function ImportWizardPage() {
           wallThickness: masterWallThickness,
           cladThickness: masterCladThickness,
           jointDegrees: masterJointDegrees,
+          bevelType: detectBevelTypeFromWeldName(weldKey),
         }),
         [field]: value,
       },
     }));
   };
 
-  const handleResetWeldToMaster = (weldKey: string) => {
+  const handleUpdateWeldBevelType = (weldKey: string, newBevelType: BevelJointType) => {
+    const def = getBevelDefinition(newBevelType);
     setWeldSpecs((prev) => ({
       ...prev,
       [weldKey]: {
-        wallThickness: masterWallThickness || "32.0",
-        cladThickness: masterCladThickness || "3.0",
-        jointDegrees: masterJointDegrees || "60.0",
+        ...(prev[weldKey] || {}),
+        bevelType: newBevelType,
+        wallThickness: String(def.defaultWallThicknessMm),
+        cladThickness: String(def.defaultCladThicknessMm),
+        jointDegrees: String(def.grooveAngleDeg),
+      },
+    }));
+  };
+
+  const handleBatchApplyBevelType = (targetBevelType: BevelJointType) => {
+    const def = getBevelDefinition(targetBevelType);
+    setWeldSpecs((prev) => {
+      const next = { ...prev };
+      availableWeldsForSelectedDrums.forEach((w) => {
+        next[w] = {
+          ...(next[w] || {}),
+          bevelType: targetBevelType,
+          wallThickness: String(def.defaultWallThicknessMm),
+          cladThickness: String(def.defaultCladThicknessMm),
+          jointDegrees: String(def.grooveAngleDeg),
+        };
+      });
+      return next;
+    });
+  };
+
+  const handleAutoDetectAllBevels = () => {
+    setWeldSpecs((prev) => {
+      const next = { ...prev };
+      availableWeldsForSelectedDrums.forEach((w) => {
+        const bType = detectBevelTypeFromWeldName(w);
+        const def = getBevelDefinition(bType);
+        next[w] = {
+          ...(next[w] || {}),
+          bevelType: bType,
+          wallThickness: String(def.defaultWallThicknessMm),
+          cladThickness: String(def.defaultCladThicknessMm),
+          jointDegrees: String(def.grooveAngleDeg),
+        };
+      });
+      return next;
+    });
+  };
+
+  const handleResetWeldToMaster = (weldKey: string) => {
+    const autoBevel = detectBevelTypeFromWeldName(weldKey);
+    const def = getBevelDefinition(autoBevel);
+    setWeldSpecs((prev) => ({
+      ...prev,
+      [weldKey]: {
+        wallThickness: masterWallThickness || String(def.defaultWallThicknessMm),
+        cladThickness: masterCladThickness || String(def.defaultCladThicknessMm),
+        jointDegrees: masterJointDegrees || String(def.grooveAngleDeg),
+        bevelType: autoBevel,
       },
     }));
   };
@@ -564,15 +632,18 @@ export default function ImportWizardPage() {
     setCladThickness(parsedClad);
     setJointDegrees(parsedDeg);
 
-    const updated: Record<string, { wallThickness: string; cladThickness: string; jointDegrees: string }> = {};
-    availableWeldsForSelectedDrums.forEach((w) => {
-      updated[w] = {
-        wallThickness: wall,
-        cladThickness: clad,
-        jointDegrees: deg,
-      };
+    setWeldSpecs((prev) => {
+      const next = { ...prev };
+      availableWeldsForSelectedDrums.forEach((w) => {
+        next[w] = {
+          ...(next[w] || { bevelType: detectBevelTypeFromWeldName(w) }),
+          wallThickness: wall,
+          cladThickness: clad,
+          jointDegrees: deg,
+        };
+      });
+      return next;
     });
-    setWeldSpecs((prev) => ({ ...prev, ...updated }));
   };
 
   const effectiveWeldKey = activeFlaw?.weldName || (selectedWelds.length === 1 && selectedWelds[0] !== "ALL" ? selectedWelds[0] : (availableWeldsForSelectedDrums[0] || null));
@@ -595,13 +666,14 @@ export default function ImportWizardPage() {
       const vaultId = `vault_${Date.now()}`;
       const name = parsedWorkbook?.filename || selectedFile?.name || `PAUT_Historical_Dataset_${new Date().toISOString().split("T")[0]}.xlsx`;
 
-      const formattedWeldSpecs: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number }> = {};
+      const formattedWeldSpecs: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number; bevelType?: BevelJointType }> = {};
       availableWeldsForSelectedDrums.forEach((w) => {
         const numSpec = getNumericWeldSpec(w);
         formattedWeldSpecs[w] = {
           nominalWallThickness: numSpec.wallThickness,
           cladThickness: numSpec.cladThickness,
           jointDegrees: numSpec.jointDegrees,
+          bevelType: numSpec.bevelType,
         };
       });
 
@@ -1017,51 +1089,91 @@ export default function ImportWizardPage() {
               </div>
             </div>
 
-            {/* Vertical Stack: All Welds Opened One by One Vertically */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  Individual Weld Seam Data ({availableWeldsForSelectedDrums.length} Welds):
-                </span>
-                <span className="text-[11px] text-slate-500">
-                  Each weld joint can have its own independent engineering specifications
-                </span>
+            {/* Vertical Stack: All Welds Opened One by One Vertically with Bevel Profile Dropdown */}
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                    Individual Weld Seam &amp; Bevel Profile Data ({availableWeldsForSelectedDrums.length} Welds):
+                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    Assign authentic fabrication bevel shapes (Rows D–G) and engineering dimensions to each weld joint
+                  </p>
+                </div>
+
+                {/* Batch Bevel Actions */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
+                    <span className="text-[11px] font-bold text-slate-600 pl-1">Batch Bevel:</span>
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) handleBatchApplyBevelType(e.target.value as BevelJointType);
+                      }}
+                      defaultValue=""
+                      className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer"
+                    >
+                      <option value="" disabled>Apply bevel to all...</option>
+                      {ALL_BEVEL_TYPES.map((bt) => {
+                        const def = BEVEL_DEFINITIONS[bt];
+                        return (
+                          <option key={bt} value={bt}>
+                            {def.shortName}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAutoDetectAllBevels}
+                    className="px-2.5 py-1 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100 rounded-lg transition cursor-pointer"
+                    title="Auto-detect bevel types from weld seam names (C8 -> 1:10 Taper, L1~7 -> GTAW, SL -> Skirt, H1/2 -> Head)"
+                  >
+                    ⚡ Auto-Detect All
+                  </button>
+                </div>
               </div>
 
               <div className="border border-slate-200 rounded-xl bg-white overflow-hidden shadow-2xs divide-y divide-slate-100">
                 {/* Table Header Row */}
-                <div className="bg-slate-100/80 px-4 py-2.5 flex items-center justify-between text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                  <div className="w-44 shrink-0">Weld Joint</div>
-                  <div className="flex-1 grid grid-cols-3 gap-4 max-w-xl text-center">
-                    <div>Nominal Wall (mm)</div>
-                    <div>Cladding (mm)</div>
-                    <div>Groove Angle (°)</div>
-                  </div>
-                  <div className="w-20 text-right shrink-0">Action</div>
+                <div className="bg-slate-100/80 px-4 py-2.5 flex items-center justify-between text-[11px] font-bold text-slate-700 uppercase tracking-wider gap-3">
+                  <div className="w-36 shrink-0">Weld Seam</div>
+                  <div className="flex-1 min-w-[220px]">Bevel Shape Profile (Drawing D–G)</div>
+                  <div className="w-24 shrink-0 text-center">Wall (mm)</div>
+                  <div className="w-24 shrink-0 text-center">Clad (mm)</div>
+                  <div className="w-24 shrink-0 text-center">Groove (°)</div>
+                  <div className="w-16 text-right shrink-0">Action</div>
                 </div>
 
                 {/* Vertical Rows: One by One */}
                 {availableWeldsForSelectedDrums.map((weld) => {
+                  const autoBevel = detectBevelTypeFromWeldName(weld);
                   const spec = weldSpecs[weld] || {
                     wallThickness: masterWallThickness,
                     cladThickness: masterCladThickness,
                     jointDegrees: masterJointDegrees,
+                    bevelType: autoBevel,
                   };
+                  const currentBevelType = spec.bevelType || autoBevel;
+                  const currentBevelDef = getBevelDefinition(currentBevelType);
+
                   const flawCount = (matrixResult?.physicalIndications || []).filter(
                     (pi) => (selectedDrums.includes("ALL") || selectedDrums.includes(pi.drumName)) && pi.weldName === weld
                   ).length;
                   const isModified =
                     spec.wallThickness !== masterWallThickness ||
                     spec.cladThickness !== masterCladThickness ||
-                    spec.jointDegrees !== masterJointDegrees;
+                    spec.jointDegrees !== masterJointDegrees ||
+                    spec.bevelType !== autoBevel;
 
                   return (
                     <div
                       key={weld}
-                      className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
+                      className="px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
                     >
                       {/* Weld Identification */}
-                      <div className="w-44 shrink-0 flex items-center gap-2">
+                      <div className="w-36 shrink-0 flex items-center gap-2">
                         <span className="font-mono font-bold text-xs bg-indigo-50 text-indigo-800 border border-indigo-200 px-2.5 py-1 rounded-md">
                           {getJointDisplayName(weld)}
                         </span>
@@ -1073,64 +1185,97 @@ export default function ImportWizardPage() {
                         </span>
                       </div>
 
-                      {/* Three Inputs */}
-                      <div className="flex-1 grid grid-cols-3 gap-4 max-w-xl">
-                        {/* Wall Thickness */}
-                        <div className="relative flex items-center">
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="1"
-                            max="200"
-                            value={spec.wallThickness}
-                            onChange={(e) => handleUpdateWeldSpec(weld, "wallThickness", e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2.5 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-7 text-right"
-                          />
-                          <span className="absolute right-2 text-[10px] text-slate-400 font-semibold pointer-events-none">mm</span>
-                        </div>
-
-                        {/* Clad Thickness */}
-                        <div className="relative flex items-center">
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max="30"
-                            value={spec.cladThickness}
-                            onChange={(e) => handleUpdateWeldSpec(weld, "cladThickness", e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2.5 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-7 text-right"
-                          />
-                          <span className="absolute right-2 text-[10px] text-slate-400 font-semibold pointer-events-none">mm</span>
-                        </div>
-
-                        {/* Joint Degrees */}
-                        <div className="relative flex items-center">
-                          <input
-                            type="number"
-                            step="1"
-                            min="10"
-                            max="120"
-                            value={spec.jointDegrees}
-                            onChange={(e) => handleUpdateWeldSpec(weld, "jointDegrees", e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2.5 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-6 text-right"
-                          />
-                          <span className="absolute right-2 text-[10px] text-slate-400 font-semibold pointer-events-none">°</span>
+                      {/* Bevel Shape Profile Dropdown */}
+                      <div className="flex-1 min-w-[220px]">
+                        <select
+                          value={currentBevelType}
+                          onChange={(e) => handleUpdateWeldBevelType(weld, e.target.value as BevelJointType)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
+                        >
+                          {ALL_BEVEL_TYPES.map((bt) => {
+                            const def = BEVEL_DEFINITIONS[bt];
+                            return (
+                              <option key={bt} value={bt}>
+                                [{def.drawingRow}] {def.shortName}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500">
+                          <span className="font-medium text-sky-700">{currentBevelDef.drawingRef}</span>
+                          {currentBevelDef.hasTaper && (
+                            <span className="px-1 py-0.2 bg-amber-50 text-amber-800 border border-amber-200 rounded font-semibold">1:10 Taper</span>
+                          )}
+                          {currentBevelDef.gtawRootPass && (
+                            <span className="px-1 py-0.2 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded font-semibold">GTAW</span>
+                          )}
+                          {!currentBevelDef.hasCladding && (
+                            <span className="px-1 py-0.2 bg-slate-100 text-slate-700 border border-slate-200 rounded font-semibold">Unclad</span>
+                          )}
+                          {currentBevelDef.isDoubleV && (
+                            <span className="px-1 py-0.2 bg-purple-50 text-purple-800 border border-purple-200 rounded font-semibold">Double-V</span>
+                          )}
                         </div>
                       </div>
 
-                      {/* Reset to Master Action */}
-                      <div className="w-20 text-right shrink-0">
+                      {/* Wall Thickness */}
+                      <div className="w-24 shrink-0 relative flex items-center">
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="1"
+                          max="200"
+                          value={spec.wallThickness}
+                          onChange={(e) => handleUpdateWeldSpec(weld, "wallThickness", e.target.value)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-6 text-right"
+                        />
+                        <span className="absolute right-1.5 text-[10px] text-slate-400 font-semibold pointer-events-none">mm</span>
+                      </div>
+
+                      {/* Clad Thickness */}
+                      <div className="w-24 shrink-0 relative flex items-center">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="30"
+                          value={spec.cladThickness}
+                          onChange={(e) => handleUpdateWeldSpec(weld, "cladThickness", e.target.value)}
+                          disabled={!currentBevelDef.hasCladding}
+                          className={`w-full border rounded px-2 py-1 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-sky-500 focus:outline-none pr-6 text-right ${
+                            !currentBevelDef.hasCladding ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed" : "bg-white border-slate-300"
+                          }`}
+                        />
+                        <span className="absolute right-1.5 text-[10px] text-slate-400 font-semibold pointer-events-none">mm</span>
+                      </div>
+
+                      {/* Joint Degrees */}
+                      <div className="w-24 shrink-0 relative flex items-center">
+                        <input
+                          type="number"
+                          step="1"
+                          min="10"
+                          max="120"
+                          value={spec.jointDegrees}
+                          onChange={(e) => handleUpdateWeldSpec(weld, "jointDegrees", e.target.value)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none pr-5 text-right"
+                        />
+                        <span className="absolute right-1.5 text-[10px] text-slate-400 font-semibold pointer-events-none">°</span>
+                      </div>
+
+                      {/* Reset to Auto / Master Action */}
+                      <div className="w-16 text-right shrink-0">
                         {isModified ? (
                           <button
                             type="button"
                             onClick={() => handleResetWeldToMaster(weld)}
                             className="text-[11px] font-bold text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
-                            title="Reset this weld to master batch values"
+                            title="Reset this weld to auto-detected bevel defaults"
                           >
                             Reset
                           </button>
                         ) : (
-                          <span className="text-[10px] text-slate-400 font-medium">Default</span>
+                          <span className="text-[10px] text-slate-400 font-medium">Auto</span>
                         )}
                       </div>
                     </div>
@@ -1478,6 +1623,7 @@ export default function ImportWizardPage() {
                   nominalWallThickness={activeSpec.wallThickness}
                   cladThickness={activeSpec.cladThickness}
                   jointDegrees={activeSpec.jointDegrees}
+                  bevelType={activeSpec.bevelType}
                 />
               )}
 
@@ -1487,6 +1633,7 @@ export default function ImportWizardPage() {
                   nominalWallThickness={activeSpec.wallThickness}
                   cladThickness={activeSpec.cladThickness}
                   jointDegrees={activeSpec.jointDegrees}
+                  bevelType={activeSpec.bevelType}
                 />
               )}
 

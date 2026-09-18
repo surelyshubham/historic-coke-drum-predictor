@@ -1,5 +1,6 @@
 import { MatrixParseResult } from "@/lib/import/matrixParser";
 import { RepairZone } from "@/types/repair";
+import { BevelJointType } from "@/lib/bevel/bevelClassifier";
 
 export interface VaultDataset {
   id: string;
@@ -17,7 +18,7 @@ export interface VaultDataset {
   nominalWallThickness?: number;
   cladThickness?: number;
   jointDegrees?: number;
-  weldSpecs?: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number }>;
+  weldSpecs?: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number; bevelType?: BevelJointType }>;
 }
 
 export interface VaultDatasetSummary {

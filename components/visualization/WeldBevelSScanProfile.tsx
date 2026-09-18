@@ -1,13 +1,21 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { TrackedPhysicalIndication } from "@/lib/import/matrixParser";
+import { 
+  BevelJointType, 
+  detectBevelTypeFromWeldName, 
+  getBevelDefinition, 
+  ALL_BEVEL_TYPES, 
+  BEVEL_DEFINITIONS 
+} from "@/lib/bevel/bevelClassifier";
 
 interface WeldBevelSScanProfileProps {
   indication: TrackedPhysicalIndication;
   nominalWallThickness?: number; // default 32 mm
   cladThickness?: number; // default 3.0 mm
   jointDegrees?: number; // default 60.0 degrees (total groove angle)
+  bevelType?: BevelJointType;
 }
 
 export function WeldBevelSScanProfile({
@@ -15,6 +23,7 @@ export function WeldBevelSScanProfile({
   nominalWallThickness = 32.0,
   cladThickness = 3.0,
   jointDegrees = 60.0,
+  bevelType,
 }: WeldBevelSScanProfileProps) {
   const [hoverCursor, setHoverCursor] = useState<{
     xPx: number;
@@ -30,29 +39,39 @@ export function WeldBevelSScanProfile({
   // Surface view filter: "BOTH" | "ID" | "OD"
   const [surfaceFilter, setSurfaceFilter] = useState<"BOTH" | "ID" | "OD">("BOTH");
 
+  const detectedBevel = useMemo(() => {
+    return bevelType || detectBevelTypeFromWeldName(indication.weldName);
+  }, [bevelType, indication.weldName]);
+
+  const [selectedBevelType, setSelectedBevelType] = useState<BevelJointType>(detectedBevel);
+
+  useEffect(() => {
+    if (bevelType) {
+      setSelectedBevelType(bevelType);
+    } else {
+      setSelectedBevelType(detectBevelTypeFromWeldName(indication.weldName));
+    }
+  }, [bevelType, indication.weldName]);
+
+  const bevelDef = getBevelDefinition(selectedBevelType);
+
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   // SVG Geometry for Horizontal Through-Thickness Slice
-  // Matches client's horizontal reference screenshot (media_1788857393727.png)
+  // Matches client's horizontal reference drawings (Drawing Rows D–G)
   const width = 740;
-  const height = 360;
+  const height = 370;
 
   // Horizontal plate representing vessel shell wall cross-section
-  // Top horizontal edge is OD (External surface)
-  // Bottom horizontal edge is ID (Internal surface)
-  // Height represents nominalWallThickness (user configured)
-  // Width represents shell weld width span (-55 mm to +55 mm)
   const plateLeft = 55;
   const plateRight = 555;
   const plateWidth = plateRight - plateLeft; // 500 px
-  const plateTop = 75; // OD Surface
-  const plateBottom = 265; // ID Surface
+  const plateTop = 80; // OD Surface baseline
+  const plateBottom = 270; // ID Surface
   const plateThicknessPx = plateBottom - plateTop; // 190 px
   const weldCenterX = (plateLeft + plateRight) / 2; // 305 px (0 mm centerline)
 
   // Coordinate Mapping:
-  // Horizontal (X): Offset from weld centerline
-  // Vertical (Y): Through-wall depth (plateBottom at 0 mm ID to plateTop at nominalWallThickness OD)
   const xSpanMm = 55.0; // Half-width span (from centerline to edge)
 
   const scaleX = (offsetMm: number) => {
@@ -71,28 +90,45 @@ export function WeldBevelSScanProfile({
     return ((plateBottom - yPx) / plateThicknessPx) * nominalWallThickness;
   };
 
-  // Double-V Bevel Geometry (dynamically scaled to nominal wall thickness and joint degrees):
-  const grooveAngle = jointDegrees || 60.0;
+  // Bevel Geometry & Dimensions from Active Bevel Definition:
+  const grooveAngle = bevelDef.grooveAngleDeg;
   const halfAngleRad = ((grooveAngle / 2) * Math.PI) / 180;
 
-  // Root face at ~11.5 mm from ID scaled proportionally
-  const rootDepthMm = Number((11.5 * (nominalWallThickness / 32.0)).toFixed(1));
+  // Root face at ~11.5 mm for double-V, or ~3.0 mm for single-V
+  const isDoubleV = bevelDef.isDoubleV;
+  const rootDepthMm = isDoubleV
+    ? Number((11.5 * (nominalWallThickness / 32.0)).toFixed(1))
+    : 3.0;
   const rootY = scaleYFromId(rootDepthMm);
-  const rootGapHalfMm = 1.8;
+  const rootGapHalfMm = bevelDef.rootGapMm / 2;
+  const backChipHalfWidthMm = bevelDef.backChipWidthMm / 2;
 
-  // OD Side (Top Edge): Bevel width computed from total groove angle
+  // OD Side: Bevel half-width computed from groove angle
   const odDepthMm = nominalWallThickness - rootDepthMm;
   const odBevelHalfWidthMm = Number((rootGapHalfMm + odDepthMm * Math.tan(halfAngleRad)).toFixed(1));
   const odTtX = scaleX(-odBevelHalfWidthMm);
   const odBtX = scaleX(odBevelHalfWidthMm);
 
-  // ID Side (Bottom Edge): Bevel width computed from total groove angle
-  const idDepthMm = rootDepthMm;
-  const idBevelHalfWidthMm = Number((rootGapHalfMm + idDepthMm * Math.tan(halfAngleRad)).toFixed(1));
+  // ID Side: Bevel half-width computed from ID groove angle (for double-V) or back-chip channel
+  const idGrooveAngle = bevelDef.idGrooveAngleDeg || 50.0;
+  const halfAngleIdRad = ((idGrooveAngle / 2) * Math.PI) / 180;
+  const idBevelHalfWidthMm = isDoubleV
+    ? Number((rootGapHalfMm + rootDepthMm * Math.tan(halfAngleIdRad)).toFixed(1))
+    : backChipHalfWidthMm;
   const idTtX = scaleX(-idBevelHalfWidthMm);
   const idBtX = scaleX(idBevelHalfWidthMm);
 
-  const effCladThickness = Math.max(0, cladThickness ?? 3.0);
+  // Taper geometry (Types C, D, F):
+  const hasTaper = bevelDef.hasTaper;
+  const taperDeltaMm = hasTaper ? (bevelDef.taperThickOffsetMm || 5.0) : 0;
+  const taperDeltaPx = (taperDeltaMm / nominalWallThickness) * plateThicknessPx;
+  const taperStartX = odBtX + 15;
+  const plateTopThick = plateTop - taperDeltaPx;
+
+  // Cladding thickness (0mm if unclad skirt)
+  const effCladThickness = bevelDef.hasCladding
+    ? Math.max(0, cladThickness ?? bevelDef.defaultCladThicknessMm)
+    : 0.0;
   const cladY = scaleYFromId(effCladThickness);
   const cladHeightPx = (effCladThickness / nominalWallThickness) * plateThicknessPx;
 
@@ -252,17 +288,29 @@ export function WeldBevelSScanProfile({
         <div>
           <div className="flex items-center gap-2">
             <h4 className="text-sm font-bold text-slate-900 tracking-tight">
-              {indication.code} — Asymmetric Double-V Weld Cross-Section
+              {indication.code} — {bevelDef.shortName}
             </h4>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800 uppercase tracking-wide">
               {nominalWallThickness.toFixed(1)} mm Wall
             </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 uppercase tracking-wide">
-              Clad: {effCladThickness.toFixed(1)} mm
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${
+              bevelDef.hasCladding ? "bg-blue-100 text-blue-800" : "bg-slate-200 text-slate-700"
+            }`}>
+              {bevelDef.hasCladding ? `Clad: ${effCladThickness.toFixed(1)} mm` : "UNCLAD"}
             </span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 uppercase tracking-wide">
-              Bevel: {grooveAngle.toFixed(0)}° Groove
+              {grooveAngle.toFixed(0)}° Groove
             </span>
+            {bevelDef.hasTaper && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 uppercase tracking-wide">
+                1:10 OD Taper
+              </span>
+            )}
+            {bevelDef.gtawRootPass && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 uppercase tracking-wide">
+                GTAW Root
+              </span>
+            )}
             {cladStatus && (
               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cladStatus === "INCLUDING" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
                 Clad: {cladStatus}
@@ -270,7 +318,7 @@ export function WeldBevelSScanProfile({
             )}
           </div>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Through-thickness slice showing OD (top) &amp; ID (bottom) surfaces • Position: <strong>{indication.weldPosition || "Weld Toe"}</strong>
+            {bevelDef.drawingRef} • Material: <strong>{bevelDef.baseMaterial}</strong> • Position: <strong>{indication.weldPosition || "Weld Toe"}</strong>
           </p>
         </div>
 
@@ -306,12 +354,48 @@ export function WeldBevelSScanProfile({
         </div>
       </div>
 
-      {/* SVG Canvas Matching the User's Engineering Double-V Reference Diagram */}
+      {/* Interactive Bevel Shape Profile Selector Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-slate-700 flex items-center gap-1.5">
+            <span>Joint Bevel Profile:</span>
+          </span>
+          <select
+            value={selectedBevelType}
+            onChange={(e) => setSelectedBevelType(e.target.value as BevelJointType)}
+            className="bg-white border border-slate-300 rounded px-2.5 py-1 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
+          >
+            {ALL_BEVEL_TYPES.map((bt) => {
+              const def = BEVEL_DEFINITIONS[bt];
+              return (
+                <option key={bt} value={bt}>
+                  [{def.drawingRow}] {def.shortName}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 text-[11px]">
+          <span className="text-slate-500 font-medium">Auto-Detected: <strong>{BEVEL_DEFINITIONS[detectedBevel].shortName}</strong></span>
+          {selectedBevelType !== detectedBevel && (
+            <button
+              type="button"
+              onClick={() => setSelectedBevelType(detectedBevel)}
+              className="px-2 py-0.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded hover:bg-sky-100 transition cursor-pointer"
+            >
+              Reset to Auto
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* SVG Canvas Matching the User's Engineering Reference Diagrams (Rows D–G) */}
       <div className="relative border border-slate-300 rounded-lg overflow-hidden bg-white shadow-inner flex justify-center py-2">
         <svg
           ref={svgRef}
           viewBox={`0 0 ${width} ${height}`}
-          className="w-full max-w-[720px] h-auto select-none cursor-crosshair overflow-visible"
+          className="w-full max-w-[740px] h-auto select-none cursor-crosshair overflow-visible"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
@@ -326,76 +410,187 @@ export function WeldBevelSScanProfile({
             </radialGradient>
           </defs>
 
-          {/* Vessel Shell Plate: Horizontal Rectangle matching reference drawing */}
-          <rect
-            x={plateLeft}
-            y={plateTop}
-            width={plateWidth}
-            height={plateThicknessPx}
-            fill="#ffffff"
-            stroke="#0f172a"
-            strokeWidth="3.2"
-          />
+          {/* Vessel Shell Plate: With 1:10 Taper on OD for Types C, D, F or Flat for Uniform */}
+          {hasTaper ? (
+            <g className="taper-plate">
+              <path
+                d={`
+                  M ${plateLeft} ${plateTop}
+                  L ${taperStartX} ${plateTop}
+                  L ${plateRight} ${plateTopThick}
+                  L ${plateRight} ${plateBottom}
+                  L ${plateLeft} ${plateBottom}
+                  Z
+                `}
+                fill="#ffffff"
+                stroke="#0f172a"
+                strokeWidth="3.2"
+              />
+              {/* 1:10 Taper Slope Callout Indicator */}
+              <g transform={`translate(${taperStartX + 30}, ${plateTop - 10})`}>
+                <polygon
+                  points="0,0 45,-4.5 45,0"
+                  fill="#f0fdf4"
+                  stroke="#16a34a"
+                  strokeWidth="1.2"
+                />
+                <text x="22" y="-6" textAnchor="middle" fontSize="9.5" fontWeight="bold" fill="#16a34a">
+                  1 : 10
+                </text>
+                <text x="52" y="-1" fontSize="9" fontWeight="bold" fill="#475569">
+                  OD Taper (+{taperDeltaMm}mm)
+                </text>
+              </g>
+            </g>
+          ) : (
+            <rect
+              x={plateLeft}
+              y={plateTop}
+              width={plateWidth}
+              height={plateThicknessPx}
+              fill="#ffffff"
+              stroke="#0f172a"
+              strokeWidth="3.2"
+            />
+          )}
 
-          {/* Internal Stainless Steel Clad Layer along ID Bottom Surface */}
-          <rect
-            x={plateLeft}
-            y={cladY}
-            width={plateWidth}
-            height={cladHeightPx}
-            fill="#38bdf8"
-            fillOpacity="0.12"
-            stroke="#0284c7"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-          />
-          <text
-            x={plateRight - 16}
-            y={cladY + cladHeightPx / 2 + 3.5}
-            textAnchor="end"
-            fontSize="9"
-            fontWeight="bold"
-            fill="#0284c7"
-          >
-            CLAD ({effCladThickness.toFixed(1)} mm)
-          </text>
+          {/* Internal Stainless Steel Clad Layer along ID Bottom Surface (omitted on unclad skirt) */}
+          {bevelDef.hasCladding && effCladThickness > 0 && (
+            <g className="clad-layer">
+              <rect
+                x={plateLeft}
+                y={cladY}
+                width={plateWidth}
+                height={cladHeightPx}
+                fill="#38bdf8"
+                fillOpacity="0.14"
+                stroke="#0284c7"
+                strokeWidth="1"
+                strokeDasharray="3 3"
+              />
+              <text
+                x={plateRight - 16}
+                y={cladY + cladHeightPx / 2 + 3.5}
+                textAnchor="end"
+                fontSize="9"
+                fontWeight="bold"
+                fill="#0284c7"
+              >
+                CLAD ({effCladThickness.toFixed(1)} mm)
+              </text>
+            </g>
+          )}
 
-          {/* Asymmetric Double-V Weld Metal Fill (Grey Hourglass matching reference drawing) */}
-          {/* Top / OD Bevel Triangle: from OD (plateTop) to Root (rootY) */}
-          <polygon
-            points={`
-              ${odTtX},${plateTop}
-              ${odBtX},${plateTop}
-              ${weldCenterX + 3},${rootY}
-              ${weldCenterX - 3},${rootY}
-            `}
-            fill="#cbd5e1"
-            stroke="#64748b"
-            strokeWidth="1.2"
-          />
+          {/* Weld Metal Fill: Asymmetric Double-V or Single-V */}
+          {isDoubleV ? (
+            <g className="double-v-weld-metal">
+              {/* Top / OD Bevel Triangle: 45° groove from OD (plateTop) to Root (rootY) */}
+              <polygon
+                points={`
+                  ${odTtX},${plateTop}
+                  ${odBtX},${plateTop}
+                  ${weldCenterX + 3},${rootY}
+                  ${weldCenterX - 3},${rootY}
+                `}
+                fill="#cbd5e1"
+                stroke="#64748b"
+                strokeWidth="1.2"
+              />
+              {/* Bottom / ID Bevel Triangle: from Root (rootY) to ID (plateBottom) */}
+              <polygon
+                points={`
+                  ${idTtX},${plateBottom}
+                  ${weldCenterX - 3},${rootY}
+                  ${weldCenterX + 3},${rootY}
+                  ${idBtX},${plateBottom}
+                `}
+                fill="#cbd5e1"
+                stroke="#64748b"
+                strokeWidth="1.2"
+              />
+              {/* Root Face Horizontal Line */}
+              <line
+                x1={weldCenterX - 3}
+                y1={rootY}
+                x2={weldCenterX + 3}
+                y2={rootY}
+                stroke="#475569"
+                strokeWidth="2"
+              />
+            </g>
+          ) : (
+            <g className="single-v-weld-metal">
+              {/* 50° Single-V from OD down to Root Channel */}
+              <polygon
+                points={`
+                  ${odTtX},${plateTop}
+                  ${odBtX},${plateTop}
+                  ${scaleX(backChipHalfWidthMm)},${scaleYFromId(2.5)}
+                  ${scaleX(-backChipHalfWidthMm)},${scaleYFromId(2.5)}
+                `}
+                fill="#cbd5e1"
+                stroke="#64748b"
+                strokeWidth="1.2"
+              />
+            </g>
+          )}
 
-          {/* Bottom / ID Bevel Triangle: from Root (rootY) to ID (plateBottom) */}
-          <polygon
-            points={`
-              ${idTtX},${plateBottom}
-              ${weldCenterX - 3},${rootY}
-              ${weldCenterX + 3},${rootY}
-              ${idBtX},${plateBottom}
-            `}
-            fill="#cbd5e1"
-            stroke="#64748b"
-            strokeWidth="1.2"
-          />
+          {/* Inconel Root Overlay (INCO.) in the Back-Chip Channel on ID */}
+          {bevelDef.inconelOverlay && (
+            <g className="inconel-overlay">
+              <polygon
+                points={`
+                  ${scaleX(-backChipHalfWidthMm - 2)},${plateBottom}
+                  ${scaleX(-backChipHalfWidthMm)},${scaleYFromId(2.8)}
+                  ${scaleX(backChipHalfWidthMm)},${scaleYFromId(2.8)}
+                  ${scaleX(backChipHalfWidthMm + 2)},${plateBottom}
+                `}
+                fill="#fef3c7"
+                stroke="#d97706"
+                strokeWidth="1.2"
+              />
+              <text
+                x={weldCenterX}
+                y={plateBottom - 5.5}
+                textAnchor="middle"
+                fontSize="8.5"
+                fontWeight="900"
+                fill="#b45309"
+              >
+                INCO.
+              </text>
+            </g>
+          )}
 
-          {/* Root Face Horizontal Line */}
-          <line
-            x1={weldCenterX - 3}
-            y1={rootY}
-            x2={weldCenterX + 3}
-            y2={rootY}
-            stroke="#475569"
-            strokeWidth="2"
-          />
+          {/* OD Convex Cap Crown (for Skirt Type E) */}
+          {bevelDef.odCapStyle === "CONVEX" && (
+            <path
+              d={`M ${odTtX} ${plateTop} Q ${weldCenterX} ${plateTop - 12} ${odBtX} ${plateTop} Z`}
+              fill="#94a3b8"
+              stroke="#64748b"
+              strokeWidth="1.2"
+            />
+          )}
+
+          {/* ID Heavy MAX 2.0mm Convex Crown (for Type F C12) */}
+          {bevelDef.idCapProtrusionMaxMm >= 2.0 && (
+            <path
+              d={`M ${idTtX} ${plateBottom} Q ${weldCenterX} ${plateBottom + 12} ${idBtX} ${plateBottom} Z`}
+              fill="#fef3c7"
+              stroke="#d97706"
+              strokeWidth="1.2"
+            />
+          )}
+
+          {/* GTAW Root Pass Callout Badge (Type B L1~L7) */}
+          {bevelDef.gtawRootPass && (
+            <g transform={`translate(${weldCenterX + 45}, ${plateBottom - 26})`}>
+              <rect x="0" y="0" width="136" height="18" rx="3" fill="#ecfdf5" stroke="#10b981" strokeWidth="1" />
+              <text x="68" y="12" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#047857">
+                FIRST PASS BY G.T.A.W.
+              </text>
+            </g>
+          )}
 
           {/* Green Vertical Weld Centerline */}
           <line

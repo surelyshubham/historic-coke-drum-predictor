@@ -8,6 +8,11 @@ import {
   getDepthGrade as resolveDepthGrade,
   getStoredColorScale,
 } from "@/lib/colors/colorScales";
+import {
+  BevelJointType,
+  detectBevelTypeFromWeldName,
+  getBevelDefinition,
+} from "@/lib/bevel/bevelClassifier";
 
 interface WeldWidthPlanPlotProps {
   indications: TrackedPhysicalIndication[];
@@ -19,6 +24,7 @@ interface WeldWidthPlanPlotProps {
   nominalWallThickness?: number;
   cladThickness?: number;
   jointDegrees?: number;
+  bevelType?: BevelJointType;
   colorScale?: ColorScaleConfig;
   clientId?: number;
   drumId?: number;
@@ -29,6 +35,7 @@ interface MiniBevelSScanPreviewProps {
   nominalWall?: number;
   cladThickness?: number;
   jointDegrees?: number;
+  bevelType?: BevelJointType;
 }
 
 function MiniBevelSScanPreview({
@@ -36,7 +43,9 @@ function MiniBevelSScanPreview({
   nominalWall = 32.0,
   cladThickness = 3.0,
   jointDegrees = 60.0,
+  bevelType,
 }: MiniBevelSScanPreviewProps) {
+  const bevelDef = getBevelDefinition(bevelType || detectBevelTypeFromWeldName(flaw.weldName));
   const effDepth = flaw.latestDepth || 3.0;
   const depthPct = Math.min(100, Math.round((effDepth / nominalWall) * 100));
   const remainingWall = Math.max(0, nominalWall - effDepth);
@@ -50,21 +59,26 @@ function MiniBevelSScanPreview({
   const pBottom = 92;
   const pThick = pBottom - pTop;
   const wCenter = (pLeft + pRight) / 2;
-  const rootDepthMm = 11.5 * (nominalWall / 32.0);
+
+  const isDoubleV = bevelDef.isDoubleV;
+  const rootDepthMm = isDoubleV ? 11.5 * (nominalWall / 32.0) : 3.0;
   const rootY = pBottom - (rootDepthMm / nominalWall) * pThick;
 
-  const grooveAngle = jointDegrees || 60.0;
+  const grooveAngle = bevelDef.grooveAngleDeg || jointDegrees || 50.0;
   const halfAngleRad = ((grooveAngle / 2) * Math.PI) / 180;
   const odDepthMm = nominalWall - rootDepthMm;
   const odHalfWidthMm = 1.8 + odDepthMm * Math.tan(halfAngleRad);
-  const idHalfWidthMm = 1.8 + rootDepthMm * Math.tan(halfAngleRad);
+
+  const idGrooveAngle = bevelDef.idGrooveAngleDeg || 50.0;
+  const halfAngleIdRad = ((idGrooveAngle / 2) * Math.PI) / 180;
+  const idHalfWidthMm = isDoubleV ? 1.8 + rootDepthMm * Math.tan(halfAngleIdRad) : (bevelDef.backChipWidthMm / 2);
 
   const odTT = wCenter - (odHalfWidthMm / 55) * ((pRight - pLeft) / 2);
   const odBT = wCenter + (odHalfWidthMm / 55) * ((pRight - pLeft) / 2);
   const idTT = wCenter - (idHalfWidthMm / 55) * ((pRight - pLeft) / 2);
   const idBT = wCenter + (idHalfWidthMm / 55) * ((pRight - pLeft) / 2);
 
-  const effClad = Math.max(0, cladThickness ?? 3.0);
+  const effClad = bevelDef.hasCladding ? Math.max(0, cladThickness ?? bevelDef.defaultCladThicknessMm) : 0;
   const cladHeight = (effClad / nominalWall) * pThick;
 
   const crackDepthPx = (Math.min(nominalWall, effDepth) / nominalWall) * pThick;
@@ -74,41 +88,104 @@ function MiniBevelSScanPreview({
   const tipY = isOD ? pTop + crackDepthPx : pBottom - crackDepthPx;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="font-bold text-sky-900 truncate max-w-[170px]" title={bevelDef.fullName}>
+          [{bevelDef.drawingRow}] {bevelDef.shortName}
+        </span>
+        {bevelDef.hasTaper && (
+          <span className="px-1 py-0.2 bg-amber-50 text-amber-800 border border-amber-200 rounded font-semibold text-[9px]">1:10 Taper</span>
+        )}
+        {bevelDef.gtawRootPass && (
+          <span className="px-1 py-0.2 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded font-semibold text-[9px]">GTAW</span>
+        )}
+      </div>
+
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 flex justify-center">
         <svg viewBox="0 0 280 110" className="w-full h-auto max-w-[280px]">
-          <rect
-            x={pLeft}
-            y={pTop}
-            width={pRight - pLeft}
-            height={pThick}
-            fill="#ffffff"
-            stroke="#0f172a"
-            strokeWidth="1.8"
-          />
-          <rect
-            x={pLeft}
-            y={pBottom - cladHeight}
-            width={pRight - pLeft}
-            height={cladHeight}
-            fill="#38bdf8"
-            fillOpacity="0.18"
-            stroke="#0284c7"
-            strokeWidth="0.8"
-            strokeDasharray="2 2"
-          />
-          <polygon
-            points={`${odTT},${pTop} ${odBT},${pTop} ${wCenter + 2},${rootY} ${wCenter - 2},${rootY}`}
-            fill="#cbd5e1"
-            stroke="#64748b"
-            strokeWidth="0.8"
-          />
-          <polygon
-            points={`${idTT},${pBottom} ${wCenter - 2},${rootY} ${wCenter + 2},${rootY} ${idBT},${pBottom}`}
-            fill="#cbd5e1"
-            stroke="#64748b"
-            strokeWidth="0.8"
-          />
+          {/* Plate */}
+          {bevelDef.hasTaper ? (
+            <path
+              d={`M ${pLeft} ${pTop} L ${odBT + 8} ${pTop} L ${pRight} ${pTop - 6} L ${pRight} ${pBottom} L ${pLeft} ${pBottom} Z`}
+              fill="#ffffff"
+              stroke="#0f172a"
+              strokeWidth="1.8"
+            />
+          ) : (
+            <rect
+              x={pLeft}
+              y={pTop}
+              width={pRight - pLeft}
+              height={pThick}
+              fill="#ffffff"
+              stroke="#0f172a"
+              strokeWidth="1.8"
+            />
+          )}
+
+          {/* Clad */}
+          {bevelDef.hasCladding && effClad > 0 && (
+            <rect
+              x={pLeft}
+              y={pBottom - cladHeight}
+              width={pRight - pLeft}
+              height={cladHeight}
+              fill="#38bdf8"
+              fillOpacity="0.18"
+              stroke="#0284c7"
+              strokeWidth="0.8"
+              strokeDasharray="2 2"
+            />
+          )}
+
+          {/* Weld Fill */}
+          {isDoubleV ? (
+            <>
+              <polygon
+                points={`${odTT},${pTop} ${odBT},${pTop} ${wCenter + 2},${rootY} ${wCenter - 2},${rootY}`}
+                fill="#cbd5e1"
+                stroke="#64748b"
+                strokeWidth="0.8"
+              />
+              <polygon
+                points={`${idTT},${pBottom} ${wCenter - 2},${rootY} ${wCenter + 2},${rootY} ${idBT},${pBottom}`}
+                fill="#cbd5e1"
+                stroke="#64748b"
+                strokeWidth="0.8"
+              />
+            </>
+          ) : (
+            <polygon
+              points={`${odTT},${pTop} ${odBT},${pTop} ${idBT},${pBottom} ${idTT},${pBottom}`}
+              fill="#cbd5e1"
+              stroke="#64748b"
+              strokeWidth="0.8"
+            />
+          )}
+
+          {/* INCO overlay strip */}
+          {bevelDef.inconelOverlay && (
+            <rect
+              x={wCenter - (bevelDef.backChipWidthMm / 2)}
+              y={pBottom - 3}
+              width={bevelDef.backChipWidthMm}
+              height={3}
+              fill="#fef3c7"
+              stroke="#d97706"
+              strokeWidth="0.8"
+            />
+          )}
+
+          {/* Convex Cap for Skirt */}
+          {bevelDef.odCapStyle === "CONVEX" && (
+            <path
+              d={`M ${odTT} ${pTop} Q ${wCenter} ${pTop - 6} ${odBT} ${pTop} Z`}
+              fill="#94a3b8"
+              stroke="#64748b"
+              strokeWidth="0.8"
+            />
+          )}
+
           <line
             x1={wCenter}
             y1={pTop - 6}
@@ -189,6 +266,7 @@ export function WeldWidthPlanPlot({
   nominalWallThickness = 32.0,
   cladThickness = 3.0,
   jointDegrees = 60.0,
+  bevelType,
   colorScale,
   clientId,
   drumId,
@@ -944,6 +1022,7 @@ export function WeldWidthPlanPlot({
                 nominalWall={nominalWallThickness}
                 cladThickness={cladThickness}
                 jointDegrees={jointDegrees}
+                bevelType={bevelType}
               />
             ) : (
               <div className="space-y-1">

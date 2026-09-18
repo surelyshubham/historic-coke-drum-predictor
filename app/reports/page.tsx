@@ -12,6 +12,7 @@ import { WeldBevelSScanProfile } from "@/components/visualization/WeldBevelSScan
 import { PredictiveForecastChart } from "@/components/visualization/predictiveForecastChart";
 import { WeldHistoricalVsCurrentGraph } from "@/components/visualization/WeldHistoricalVsCurrentGraph";
 import { generateDocxReportBlob } from "@/lib/reports/docxGenerator";
+import { detectBevelTypeFromWeldName, getBevelDefinition } from "@/lib/bevel/bevelClassifier";
 import { 
   FileText, 
   Download, 
@@ -1537,6 +1538,9 @@ export default function ReportsPage() {
                     ? Number(customJointDegreesInput)
                     : (weldSpec?.jointDegrees ?? effectiveJointDegrees);
 
+                  const seamBevelType = weldSpec?.bevelType || detectBevelTypeFromWeldName(weldName);
+                  const seamBevelDef = getBevelDefinition(seamBevelType);
+
                   return (
                     <>
                       {/* Weld Assessment Color Coding & Inspection Acceptance Standard Banner */}
@@ -1547,7 +1551,7 @@ export default function ReportsPage() {
                             <span>Visual Color Codes &amp; Flaw Severity Standards — Seam {weldName}</span>
                           </span>
                           <span className="text-[10px] text-slate-500 font-medium">
-                            Wall: <strong>{seamNominalThickness.toFixed(1)} mm</strong> • Clad: <strong>{seamCladThickness.toFixed(1)} mm</strong> • Bevel: <strong>{seamJointDegrees}°</strong>
+                            Wall: <strong>{seamNominalThickness.toFixed(1)} mm</strong> • Clad: <strong>{seamCladThickness.toFixed(1)} mm</strong> • Bevel: <strong>{seamJointDegrees}° [{seamBevelDef.shortName}]</strong>
                           </span>
                         </div>
 
@@ -1641,6 +1645,7 @@ export default function ReportsPage() {
                               nominalWallThickness={seamNominalThickness}
                               cladThickness={seamCladThickness}
                               jointDegrees={seamJointDegrees}
+                              bevelType={seamBevelType}
                               colorScale={activeColorScale}
                             />
                           </div>
@@ -1656,7 +1661,7 @@ export default function ReportsPage() {
                               2.{weldIdx + 1}.3 Through-Thickness Bevel S-Scan Profile — Seam {weldName} (Flaw {weldSelectedInd.code})
                             </h5>
                             <span className="text-[11px] text-slate-500">
-                              Nominal Wall: <strong>{seamNominalThickness} mm</strong> • OD (Top) / ID (Bottom) Transverse Cut
+                              Nominal Wall: <strong>{seamNominalThickness} mm</strong> • [{seamBevelDef.shortName}] • OD (Top) / ID (Bottom) Transverse Cut
                             </span>
                           </div>
 
@@ -1680,6 +1685,7 @@ export default function ReportsPage() {
                               nominalWallThickness={seamNominalThickness}
                               cladThickness={seamCladThickness}
                               jointDegrees={seamJointDegrees}
+                              bevelType={seamBevelType}
                             />
                           </div>
                         </div>
