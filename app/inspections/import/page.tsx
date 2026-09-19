@@ -677,19 +677,47 @@ export default function ImportWizardPage() {
         };
       });
 
-      // 1. Commit dataset to Database and assign to target client
-      const dbResult = await commitMatrixDatasetAction({
-        drumId: selectedDrumId || 1,
-        filename: name,
-        sizeBytes: selectedFile?.size || 0,
-        mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        matrixResult,
-        targetClientId: selectedClientId || undefined,
-        nominalWallThickness,
-        cladThickness,
-        jointDegrees,
-        weldSpecs: formattedWeldSpecs,
-      });
+      // 1. Commit dataset to Database via high-capacity API route (with Server Action fallback)
+      let dbResult: any = null;
+      try {
+        const response = await fetch("/api/inspections/save-matrix", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            drumId: selectedDrumId || 1,
+            filename: name,
+            sizeBytes: selectedFile?.size || 0,
+            mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            matrixResult,
+            targetClientId: selectedClientId || undefined,
+            nominalWallThickness,
+            cladThickness,
+            jointDegrees,
+            weldSpecs: formattedWeldSpecs,
+          }),
+        });
+
+        const resData = await response.json();
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.error || `HTTP ${response.status}: Failed to save dataset to database`);
+        }
+        dbResult = resData;
+      } catch (apiErr: any) {
+        console.warn("API route save notice:", apiErr.message);
+        // Fallback to Server Action if API route was unreachable
+        dbResult = await commitMatrixDatasetAction({
+          drumId: selectedDrumId || 1,
+          filename: name,
+          sizeBytes: selectedFile?.size || 0,
+          mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          matrixResult,
+          targetClientId: selectedClientId || undefined,
+          nominalWallThickness,
+          cladThickness,
+          jointDegrees,
+          weldSpecs: formattedWeldSpecs,
+        });
+      }
 
       // 2. Cache in Local Browser Vault
       await saveDatasetToVault({

@@ -138,10 +138,18 @@ export async function deleteClientAction(clientId: number) {
     .set({ clientId: null })
     .where(eq(cokeDrums.clientId, clientId));
 
-  // 2. Delete Client User Accounts
-  await db
-    .delete(users)
-    .where(eq(users.clientId, clientId));
+  // 2. Safely handle Client User Accounts
+  try {
+    await db
+      .delete(users)
+      .where(eq(users.clientId, clientId));
+  } catch (userDelErr) {
+    // If users have foreign key references in audit logs or inspections, unassign them
+    await db
+      .update(users)
+      .set({ clientId: null })
+      .where(eq(users.clientId, clientId));
+  }
 
   // 3. Delete Client
   await db
@@ -238,7 +246,11 @@ export async function deleteClientUserAction(userId: number) {
     throw new Error("Unauthorized: Only Master users can delete client users.");
   }
 
-  await db.delete(users).where(eq(users.id, userId));
+  try {
+    await db.delete(users).where(eq(users.id, userId));
+  } catch (err) {
+    await db.update(users).set({ clientId: null }).where(eq(users.id, userId));
+  }
 
   revalidatePath("/clients");
   return { success: true };

@@ -1,299 +1,75 @@
-"use server";
-
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { 
-  users,
-  clients,
+  users, 
+  clients, 
   cokeDrums, 
   weldJoints, 
   inspections, 
-  inspectionFiles, 
   inspectionObservations, 
   physicalIndications, 
   indicationMatches, 
-  repairEvents, 
   auditLogs 
 } from "@/db/schema";
-import { validateImportRows, ObservationImportRow } from "@/lib/validation/importSchema";
-import { detectMatrixFormat, discoverCampaignsFromHeaders, parseMatrixRows, MatrixParseResult } from "@/lib/import/matrixParser";
+import { MatrixParseResult } from "@/lib/import/matrixParser";
 import { eq, inArray } from "drizzle-orm";
-import * as XLSX from "xlsx";
 
-export async function getDrumsAndWelds() {
-  const session = await auth();
-  if (session?.user?.role !== "MASTER") {
-    throw new Error("Unauthorized: Only Master users can access import tools.");
-  }
+export const maxDuration = 60; // Allow up to 60 seconds execution on Vercel
+export const dynamic = "force-dynamic";
 
-  const drumsList = await db.select().from(cokeDrums);
-  const weldsList = await db.select().from(weldJoints);
-
-  return { drums: drumsList, welds: weldsList };
-}
-
-// Helper to auto-detect header row
-function detectHeaderRow(aoa: unknown[][]): { headerIndex: number; headers: string[] } {
-  const commonHeaderKeywords = ["ind", "weld", "joint", "circ", "pos", "len", "dep", "thick", "type", "amp", "segment", "no", "drum"];
-  
-  let bestRowIndex = 0;
-  let maxKeywordScore = -1;
-  let bestHeaders: string[] = [];
-
-  for (let r = 0; r < Math.min(15, aoa.length); r++) {
-    const row = aoa[r];
-    if (!Array.isArray(row)) continue;
-
-    let score = 0;
-    const currentHeaders = row.map((cell, cIdx) => {
-      const str = cell !== null && cell !== undefined ? String(cell).trim() : `Column_${cIdx + 1}`;
-      const lower = str.toLowerCase();
-      if (commonHeaderKeywords.some(k => lower.includes(k))) score += 2;
-      return str;
-    });
-
-    if (score > maxKeywordScore && currentHeaders.length > 2) {
-      maxKeywordScore = score;
-      bestRowIndex = r;
-      bestHeaders = currentHeaders;
-    }
-  }
-
-  if (bestHeaders.length === 0 && aoa.length > 0) {
-    bestHeaders = (aoa[0] || []).map((c, i) => String(c ?? `Column_${i + 1}`));
-  }
-
-  return { headerIndex: bestRowIndex, headers: bestHeaders };
-}
-
-export async function parseWorkbookFile(formData: FormData) {
-  const session = await auth();
-  if (session?.user?.role !== "MASTER") {
-    throw new Error("Unauthorized");
-  }
-
-  const file = formData.get("file") as File;
-  if (!file) {
-    throw new Error("No file uploaded");
-  }
-
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const workbook = XLSX.read(buffer, { type: "buffer", raw: false, cellDates: false });
-
-  const sheetNames = workbook.SheetNames;
-  const sheetsData: Record<string, {
-    detectedHeaderRow: number;
-    headers: string[];
-    sampleRows: Record<string, unknown>[];
-    allRows: Record<string, unknown>[];
-    totalRows: number;
-    isMatrixFormat: boolean;
-    matrixResult?: MatrixParseResult;
-  }> = {};
-
-  sheetNames.forEach((sheetName) => {
-    const sheet = workbook.Sheets[sheetName];
-    const rawAoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
-    const { headerIndex, headers } = detectHeaderRow(rawAoa);
-
-    const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-      range: headerIndex,
-      defval: "",
-      raw: false,
-    });
-
-    const isMatrix = detectMatrixFormat(headers);
-    let matrixResult: MatrixParseResult | undefined;
-
-    if (isMatrix) {
-      const campaigns = discoverCampaignsFromHeaders(headers);
-      matrixResult = parseMatrixRows(jsonRows, headers, campaigns);
-    }
-
-    sheetsData[sheetName] = {
-      detectedHeaderRow: headerIndex,
-      headers,
-      sampleRows: jsonRows.slice(0, 5),
-      allRows: jsonRows,
-      totalRows: jsonRows.length,
-      isMatrixFormat: isMatrix,
-      matrixResult,
-    };
-  });
-
-  // Guarantee strict plain object serialization across Server Action network boundary
-  return JSON.parse(JSON.stringify({
-    filename: file.name,
-    sizeBytes: file.size,
-    mimeType: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    sheetNames,
-    sheetsData,
-  }));
-}
-
-export async function validateDatasetAction(
-  rows: Record<string, unknown>[],
-  fieldMapping: Record<string, string>,
-  options?: {
-    headerRowIndex?: number;
-    validWeldNames?: string[];
-  }
-) {
-  const session = await auth();
-  if (session?.user?.role !== "MASTER") {
-    throw new Error("Unauthorized");
-  }
-
-  return validateImportRows(rows, fieldMapping, options);
-}
-
-// Commit standard single-campaign import
-export async function commitImportDatasetAction(payload: {
-  drumId: number;
-  campaignName: string;
-  inspectionDate: string;
-  filename: string;
-  sizeBytes: number;
-  mimeType: string;
-  validRows: ObservationImportRow[];
-}) {
-  const session = await auth();
-  if (session?.user?.role !== "MASTER") {
-    throw new Error("Unauthorized");
-  }
-
-  let userId: number = 5;
-  if (session?.user?.id && !isNaN(parseInt(session.user.id as string, 10))) {
-    const candidateId = parseInt(session.user.id as string, 10);
-    const [found] = await db.select().from(users).where(eq(users.id, candidateId)).limit(1);
-    if (found) userId = found.id;
-  }
-  if (!userId && session?.user?.email) {
-    const [dbUser] = await db.select().from(users).where(eq(users.email, session.user.email)).limit(1);
-    if (dbUser) userId = dbUser.id;
-  }
-  if (!userId) {
-    const [firstMaster] = await db.select().from(users).where(eq(users.role, "MASTER")).limit(1);
-    userId = firstMaster?.id || 5;
-  }
-
-  const drumWelds = await db.select().from(weldJoints).where(eq(weldJoints.drumId, payload.drumId));
-  const weldMap = new Map(drumWelds.map(w => [w.name.toUpperCase().replace(/[^A-Z0-9]/g, ''), w.id]));
-  const defaultWeldId = drumWelds[0]?.id;
-
-  const [newInspection] = await db.insert(inspections).values({
-    drumId: payload.drumId,
-    campaignName: payload.campaignName,
-    inspectionDate: new Date(payload.inspectionDate),
-    inspectionType: 'PAUT/DRM',
-    processingStatus: 'COMPLETED',
-    validationStatus: 'VALIDATED',
-    createdBy: userId,
-  }).returning();
-
-  const objectKey = `inspections/${payload.drumId}/${Date.now()}_${payload.filename}`;
-  await db.insert(inspectionFiles).values({
-    inspectionId: newInspection.id,
-    filename: payload.filename,
-    objectKey,
-    sizeBytes: payload.sizeBytes,
-    mimeType: payload.mimeType,
-    status: 'PRESERVED',
-    uploadedBy: userId,
-  });
-
-  const obsValues = payload.validRows.map(row => {
-    const normName = row.weldName.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const matchedWeldId = weldMap.get(normName) || defaultWeldId;
-    return {
-      inspectionId: newInspection.id,
-      sourceIndicationNumber: row.sourceIndicationNumber,
-      weldJointId: matchedWeldId,
-      circumferentialPosition: row.circumferentialPosition,
-      axialPosition: row.axialPosition ?? null,
-      length: row.length,
-      depth: row.depth,
-      amplitude: row.amplitude ?? null,
-      indicationType: row.indicationType || 'PAUT Indication',
-      result: row.result || 'RECORDED',
-    };
-  });
-
-  const chunkSize = 200;
-  for (let i = 0; i < obsValues.length; i += chunkSize) {
-    const chunk = obsValues.slice(i, i + chunkSize);
-    if (chunk.length > 0) {
-      await db.insert(inspectionObservations).values(chunk);
-    }
-  }
-
-  await db.insert(auditLogs).values({
-    userId,
-    action: 'DATA_IMPORT',
-    objectType: 'inspections',
-    objectId: String(newInspection.id),
-    newValue: {
-      campaignName: payload.campaignName,
-      importedObservations: obsValues.length,
-      filename: payload.filename,
-    },
-  });
-
-  return { success: true, inspectionId: newInspection.id, importedCount: obsValues.length };
-}
-
-export async function getClientsForImportAction() {
-  const session = await auth();
-  if (session?.user?.role !== "MASTER") {
-    throw new Error("Unauthorized");
-  }
-
-  const clientsList = await db.select().from(clients);
-  return JSON.parse(JSON.stringify(clientsList));
-}
-
-// Commit multi-campaign historical matrix dataset (like the PDF format)
-export async function commitMatrixDatasetAction(payload: {
-  drumId: number;
-  filename: string;
-  sizeBytes: number;
-  mimeType: string;
-  matrixResult: MatrixParseResult;
-  targetClientId?: number;
-  nominalWallThickness?: number;
-  cladThickness?: number;
-  jointDegrees?: number;
-  weldSpecs?: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number }>;
-}) {
-  const session = await auth();
-  if (session?.user?.role !== "MASTER") {
-    throw new Error("Unauthorized: Only MASTER engineers can save datasets to the platform.");
-  }
-
-  // Safe user resolution to prevent NaN or non-existent user database errors
-  let validUserId: number | null = null;
-  if (session?.user?.id && !isNaN(parseInt(session.user.id as string, 10))) {
-    const candidateId = parseInt(session.user.id as string, 10);
-    const [found] = await db.select().from(users).where(eq(users.id, candidateId)).limit(1);
-    if (found) validUserId = found.id;
-  }
-  if (!validUserId && session?.user?.email) {
-    const [dbUser] = await db.select().from(users).where(eq(users.email, session.user.email)).limit(1);
-    if (dbUser) validUserId = dbUser.id;
-  }
-  if (!validUserId) {
-    const [firstMaster] = await db.select().from(users).where(eq(users.role, "MASTER")).limit(1);
-    if (firstMaster) validUserId = firstMaster.id;
-  }
-  if (!validUserId) {
-    const [anyUser] = await db.select().from(users).limit(1);
-    validUserId = anyUser?.id || 5;
-  }
-
-  const { drumId, matrixResult, targetClientId, nominalWallThickness } = payload;
-
+export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    const role = (session?.user as any)?.role;
+    if (role !== "MASTER") {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized: Only MASTER engineers can save datasets to the platform." },
+        { status: 401 }
+      );
+    }
+
+    // Safe user resolution ensuring userId exists in DB
+    let validUserId: number | null = null;
+    if (session?.user?.id && !isNaN(parseInt(session.user.id as string, 10))) {
+      const candidateId = parseInt(session.user.id as string, 10);
+      const [found] = await db.select().from(users).where(eq(users.id, candidateId)).limit(1);
+      if (found) validUserId = found.id;
+    }
+    if (!validUserId && session?.user?.email) {
+      const [dbUser] = await db.select().from(users).where(eq(users.email, session.user.email)).limit(1);
+      if (dbUser) validUserId = dbUser.id;
+    }
+    if (!validUserId) {
+      const [firstMaster] = await db.select().from(users).where(eq(users.role, "MASTER")).limit(1);
+      if (firstMaster) validUserId = firstMaster.id;
+    }
+    if (!validUserId) {
+      const [anyUser] = await db.select().from(users).limit(1);
+      validUserId = anyUser?.id || 5;
+    }
+
+    const payload = await req.json();
+    const { drumId, matrixResult, targetClientId, nominalWallThickness } = payload as {
+      drumId: number;
+      filename: string;
+      sizeBytes: number;
+      mimeType: string;
+      matrixResult: MatrixParseResult;
+      targetClientId?: number;
+      nominalWallThickness?: number;
+      cladThickness?: number;
+      jointDegrees?: number;
+      weldSpecs?: Record<string, { nominalWallThickness: number; cladThickness: number; jointDegrees: number }>;
+    };
+
+    if (!matrixResult || !matrixResult.availableDrums) {
+      return NextResponse.json(
+        { success: false, error: "Invalid payload: Matrix parse result is missing." },
+        { status: 400 }
+      );
+    }
+
     // 0. Auto-register all unique drums detected in the matrix if missing
     const existingDrums = await db.select().from(cokeDrums);
     const drumLookup = new Map<string, number>();
@@ -423,10 +199,9 @@ export async function commitMatrixDatasetAction(payload: {
       }
     }
 
-    // 3. Batch insert physical indications (chunked to prevent timeouts and duplicate key crashes)
+    // 3. Batch insert physical indications (chunked to prevent timeouts)
     const piIdMap = new Map<string, number>();
 
-    // Deduplicate indications by unique code within the matrix payload and limit code length to 48 chars
     const uniqueIndicationsMap = new Map<string, (typeof matrixResult.physicalIndications)[0]>();
     matrixResult.physicalIndications.forEach((pi) => {
       const safeCode =
@@ -475,7 +250,6 @@ export async function commitMatrixDatasetAction(payload: {
       }
     }
 
-    // If any indications already existed in DB, query their IDs to populate piIdMap
     const missingCodes = piRows.map((r) => r.code).filter((c) => !piIdMap.has(c));
     if (missingCodes.length > 0) {
       for (let i = 0; i < missingCodes.length; i += piChunkSize) {
@@ -580,14 +354,17 @@ export async function commitMatrixDatasetAction(payload: {
       },
     });
 
-    return {
+    return NextResponse.json({
       success: true,
       campaignsCount: matrixResult.campaigns.length,
       physicalIndicationsCount: matrixResult.physicalIndications.length,
       observationsCount: insertedObservations.length,
-    };
+    });
   } catch (error: any) {
-    console.error("Critical error in commitMatrixDatasetAction:", error);
-    throw new Error(error.message || "Failed to save dataset to database");
+    console.error("Critical error in /api/inspections/save-matrix:", error);
+    return NextResponse.json(
+      { success: false, error: error.message || "Failed to save dataset to database" },
+      { status: 500 }
+    );
   }
 }
