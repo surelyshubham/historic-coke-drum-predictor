@@ -691,14 +691,13 @@ export default function ImportWizardPage() {
     setShowSpecsModal(true);
   };
 
-  // Save to Local Vault & Database
+  // Save to Local Vault & Database via Chunked Streaming (avoids Vercel 4.5MB 413 limits)
   const handleSaveToDatabase = async () => {
     if (!matrixResult) return;
     setLoading(true);
     setErrorMessage("");
     setDebugInfo(null);
     setShowDebugDetails(false);
-    setSaveProgressText("Packaging dataset parameters...");
 
     try {
       const vaultId = `vault_${Date.now()}`;
@@ -715,76 +714,126 @@ export default function ImportWizardPage() {
         };
       });
 
-      const payloadObj = {
-        drumId: selectedDrumId || 1,
-        filename: name,
-        sizeBytes: selectedFile?.size || 0,
-        mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        matrixResult,
-        targetClientId: selectedClientId || undefined,
-        nominalWallThickness,
-        cladThickness,
-        jointDegrees,
-        weldSpecs: formattedWeldSpecs,
-      };
+      const totalIndications = matrixResult.physicalIndications.length;
+      let totalObservationsSaved = 0;
 
-      const payloadString = JSON.stringify(payloadObj);
-      const payloadSizeKb = Math.round(payloadString.length / 1024);
-
-      setSaveProgressText(`Sending ${payloadSizeKb} KB dataset (${matrixResult.physicalIndications.length} indications, ${matrixResult.observations.length} observations) to database...`);
-
-      // 1. Commit dataset to Database via high-capacity API route
-      let dbResult: any = null;
-      let apiFailedResponse: any = null;
-
-      try {
-        const response = await fetch("/api/inspections/save-matrix", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payloadString,
-        });
-
-        const resData = await response.json().catch(() => ({}));
-        if (!response.ok || !resData.success) {
-          apiFailedResponse = {
-            httpStatus: response.status,
-            httpStatusText: response.statusText,
-            serverError: resData.error || `HTTP ${response.status}: Save failed`,
-            serverDebug: resData.debug || null,
-            payloadSizeKb,
-            activeUser: sessionDiagnostic?.session?.user || null,
-          };
-          throw new Error(resData.error || `Server returned HTTP ${response.status} (${response.statusText})`);
+      // Extract distinct weld pairs across all indications
+      const distinctWelds: Array<{ drumName: string; weldName: string }> = [];
+      const seenWelds = new Set<string>();
+      matrixResult.physicalIndications.forEach((pi) => {
+        const d = (pi.drumName || matrixResult.availableDrums[0] || "C04").toUpperCase().trim();
+        const w = (pi.weldName || "C6").trim();
+        const k = `${d}:::${w}`;
+        if (!seenWelds.has(k)) {
+          seenWelds.add(k);
+          distinctWelds.push({ drumName: d, weldName: w });
         }
-        dbResult = resData;
-      } catch (apiErr: any) {
-        console.warn("API route save result:", apiErr.message);
+      });
 
-        // If it was an explicit auth error (401/403) or validation error (400), do NOT try fallback which will fail identically
-        if (apiFailedResponse && (apiFailedResponse.httpStatus === 401 || apiFailedResponse.httpStatus === 403 || apiFailedResponse.httpStatus === 400)) {
-          setDebugInfo(apiFailedResponse);
-          throw apiErr;
-        }
+      // ─────────────────────────────────────────────────────────────
+      // STAGE 1: Initialize Database Registry (~3 KB)
+      // ─────────────────────────────────────────────────────────────
+      setSaveProgressText(`Initializing campaign registry (${matrixResult.availableDrums.length} drums, ${matrixResult.campaigns.length} campaigns)...`);
 
-        // Attempt fallback to Server Action only on network/unreachable error
-        setSaveProgressText("API endpoint unreachable. Trying Server Action fallback...");
-        try {
-          dbResult = await commitMatrixDatasetAction(payloadObj);
-        } catch (saErr: any) {
-          setDebugInfo({
-            apiError: apiFailedResponse || apiErr.message,
-            serverActionError: saErr.message,
-            payloadSizeKb,
-            activeUser: sessionDiagnostic?.session?.user || null,
-            hint: "Check if you are signed in with a MASTER account, or if corporate proxy is blocking requests."
-          });
-          throw saErr;
-        }
+      const initRes = await fetch("/api/inspections/save-matrix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "init",
+          drumId: selectedDrumId || 1,
+          filename: name,
+          targetClientId: selectedClientId || undefined,
+          nominalWallThickness,
+          cladThickness,
+          jointDegrees,
+          availableDrums: matrixResult.availableDrums,
+          campaigns: matrixResult.campaigns.map((c) => ({ key: c.key, label: c.label, date: c.date })),
+          distinctWelds,
+        }),
+      });
+
+      const initData = await initRes.json().catch(() => ({}));
+      if (!initRes.ok || !initData.success) {
+        const errObj = {
+          httpStatus: initRes.status,
+          httpStatusText: initRes.statusText,
+          serverError: initData.error || `Initialization failed: HTTP ${initRes.status}`,
+          serverDebug: initData.debug || null,
+          activeUser: sessionDiagnostic?.session?.user || null,
+        };
+        setDebugInfo(errObj);
+        throw new Error(initData.error || `Server returned HTTP ${initRes.status} on initialization`);
       }
 
-      setSaveProgressText("Caching dataset in browser local vault...");
+      const { drumLookup, weldLookup, campaignMap } = initData;
 
-      // 2. Cache in Local Browser Vault
+      // ─────────────────────────────────────────────────────────────
+      // STAGE 2: Stream Indications in Chunks of 150 (~40-60 KB each)
+      // ─────────────────────────────────────────────────────────────
+      const CHUNK_SIZE = 150;
+      const chunks: Array<typeof matrixResult.physicalIndications> = [];
+      for (let i = 0; i < matrixResult.physicalIndications.length; i += CHUNK_SIZE) {
+        chunks.push(matrixResult.physicalIndications.slice(i, i + CHUNK_SIZE));
+      }
+
+      for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+        const chunk = chunks[cIdx];
+        const currentSaved = Math.min(totalIndications, (cIdx + 1) * CHUNK_SIZE);
+        const percent = Math.round((currentSaved / totalIndications) * 100);
+
+        setSaveProgressText(`Saving flaw indications: ${currentSaved} of ${totalIndications} (${percent}%) [Batch ${cIdx + 1}/${chunks.length}]...`);
+
+        const chunkRes = await fetch("/api/inspections/save-matrix", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "save-chunk",
+            indications: chunk,
+            campaigns: matrixResult.campaigns.map((c) => ({ key: c.key, label: c.label, date: c.date })),
+            drumLookup,
+            weldLookup,
+            campaignMap,
+            fallbackDrumId: selectedDrumId || 1,
+          }),
+        });
+
+        const chunkData = await chunkRes.json().catch(() => ({}));
+        if (!chunkRes.ok || !chunkData.success) {
+          const errObj = {
+            httpStatus: chunkRes.status,
+            httpStatusText: chunkRes.statusText,
+            serverError: chunkData.error || `Batch ${cIdx + 1}/${chunks.length} failed: HTTP ${chunkRes.status}`,
+            serverDebug: chunkData.debug || null,
+            activeUser: sessionDiagnostic?.session?.user || null,
+          };
+          setDebugInfo(errObj);
+          throw new Error(chunkData.error || `Batch ${cIdx + 1} failed: HTTP ${chunkRes.status}`);
+        }
+
+        totalObservationsSaved += chunkData.insertedObservations || 0;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // STAGE 3: Finalize Audit Log Record (~0.5 KB)
+      // ─────────────────────────────────────────────────────────────
+      setSaveProgressText("Finalizing database records and audit history...");
+      await fetch("/api/inspections/save-matrix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "finalize",
+          drumId: selectedDrumId || 1,
+          filename: name,
+          totalIndications,
+          totalObservations: totalObservationsSaved,
+          campaignsCount: matrixResult.campaigns.length,
+        }),
+      });
+
+      // ─────────────────────────────────────────────────────────────
+      // STAGE 4: Cache in Browser Local Vault
+      // ─────────────────────────────────────────────────────────────
+      setSaveProgressText("Caching dataset in browser local vault...");
       await saveDatasetToVault({
         id: vaultId,
         name,
@@ -811,7 +860,7 @@ export default function ImportWizardPage() {
         drumsCount: matrixResult.availableDrums.length,
         campaignsCount: matrixResult.campaigns.length,
         physicalIndicationsCount: matrixResult.physicalIndications.length,
-        observationsCount: dbResult.observationsCount || matrixResult.observations.length,
+        observationsCount: totalObservationsSaved || matrixResult.observations.length,
       });
       setStep("SAVED");
     } catch (err: any) {
