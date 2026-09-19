@@ -721,7 +721,7 @@ export default function ImportWizardPage() {
       const distinctWelds: Array<{ drumName: string; weldName: string }> = [];
       const seenWelds = new Set<string>();
       matrixResult.physicalIndications.forEach((pi) => {
-        const d = (pi.drumName || matrixResult.availableDrums[0] || "C04").toUpperCase().trim();
+        const d = (pi.drumName || matrixResult.availableDrums[0] || "R01").toUpperCase().trim();
         const w = (pi.weldName || "C6").trim();
         const k = `${d}:::${w}`;
         if (!seenWelds.has(k)) {

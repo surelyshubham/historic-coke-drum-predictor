@@ -268,19 +268,34 @@ export function parseMatrixRows(
   const weldsByDrumMap: Record<string, Set<string>> = {};
 
   // Find metadata columns
-  const drumCol = headers.find(h => h.toUpperCase().includes('DRUM')) || headers[0];
-  const weldCol = headers.find(h => h.toUpperCase().includes('JOINT') || h.toUpperCase().includes('WELD')) || headers[1];
+  const drumCol = headers.find(h => {
+    const up = h.toUpperCase();
+    return up.includes('DRUM') || up.includes('VESSEL') || up.includes('EQUIPMENT') || up.includes('UNIT');
+  });
+  const weldCol = headers.find(h => h.toUpperCase().includes('JOINT') || h.toUpperCase().includes('WELD')) || headers.find(h => h.toUpperCase().includes('SEAM')) || headers[1];
   const segmentCol = headers.find(h => h.toUpperCase().includes('SEGMENT')) || headers[2];
   const typeCol = headers.find(h => h.toUpperCase().includes('INDICATION TYPE') || h.toUpperCase() === 'TYPE');
   const weldPosCol = headers.find(h => h.toUpperCase().includes('DEFECT POSITION') || h.toUpperCase().includes('BOTTOM TOE'));
   const cladCol = headers.find(h => h.toUpperCase().includes('CLAD'));
   const heightCol = headers.find(h => h.toUpperCase().includes('ACCUMULATED') || (h.toUpperCase().includes('HEIGHT') && !h.toUpperCase().includes('WEIGHT')));
 
-  rows.forEach((row, rowIdx) => {
-    let drumName = String(row[drumCol] ?? 'C04').trim().toUpperCase();
-    if (!drumName || drumName === 'UNDEFINED') drumName = 'C04';
+  let lastSeenDrumName = "";
 
-    let weldName = String(row[weldCol] ?? 'C6').trim().toUpperCase();
+  rows.forEach((row, rowIdx) => {
+    let rawDrum = drumCol && row[drumCol] !== undefined && row[drumCol] !== null
+      ? String(row[drumCol]).trim().toUpperCase()
+      : "";
+    if (rawDrum === 'UNDEFINED' || rawDrum === 'NULL' || rawDrum === 'NONE') rawDrum = "";
+
+    if (rawDrum) {
+      lastSeenDrumName = rawDrum;
+    }
+
+    let drumName = rawDrum || lastSeenDrumName || "R01";
+
+    let weldName = weldCol && row[weldCol] !== undefined && row[weldCol] !== null
+      ? String(row[weldCol]).trim().toUpperCase()
+      : "C6";
     if (!weldName || weldName === 'UNDEFINED') weldName = 'C6';
 
     const segment = String(row[segmentCol] ?? '').trim();
