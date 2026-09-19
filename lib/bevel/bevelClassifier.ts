@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Coke Drum Weld Bevel Profiles Engine
  * Represents the 8 distinct weld joint fabrication details from authentic engineering drawings.
  */
@@ -191,12 +191,12 @@ export const BEVEL_DEFINITIONS: Record<BevelJointType, BevelDefinition> = {
     id: "TYPE_G_HEAD_H1",
     typeLetter: "G",
     drawingRow: "G",
-    shortName: "Type G — Head 1 Asym Double-V (45° OD / 60° ID)",
-    fullName: "Type G: H1A~K (Double-V: 45° OD / 60° ID, 32mm Wall)",
+    shortName: "Type G — Head 1 Asym Double-V (60° OD / 45° ID)",
+    fullName: "Type G: H1A~K (Double-V: 60° OD / 45° ID, 32mm Wall)",
     drawingRef: "Drawing Row G - Left: H1A~K",
     applicableWeldsText: "H1A~K",
     baseMaterial: "1 1/4Cr (SA-387 Gr 11)",
-    grooveAngleDeg: 45.0,
+    grooveAngleDeg: 60.0,
     hasTaper: false,
     hasCladding: true,
     defaultCladThicknessMm: 1.5,
@@ -206,7 +206,7 @@ export const BEVEL_DEFINITIONS: Record<BevelJointType, BevelDefinition> = {
     odCapStyle: "FLUSH",
     idCapProtrusionMaxMm: 0.8,
     isDoubleV: true,
-    idGrooveAngleDeg: 60.0,
+    idGrooveAngleDeg: 45.0,
     defaultWallThicknessMm: 32.0,
     gtawRootPass: false,
   },
@@ -214,12 +214,12 @@ export const BEVEL_DEFINITIONS: Record<BevelJointType, BevelDefinition> = {
     id: "TYPE_H_HEAD_H2_H3",
     typeLetter: "H",
     drawingRow: "G",
-    shortName: "Type H — Head 2/3 Asym Double-V (45° OD / 50° ID)",
-    fullName: "Type H: H2/H3 (Double-V: 45° OD / 50° ID, 36mm Wall)",
+    shortName: "Type H — Head 2/3 Asym Double-V (50° OD / 45° ID)",
+    fullName: "Type H: H2/H3 (Double-V: 50° OD / 45° ID, 36mm Wall)",
     drawingRef: "Drawing Row G - Right: H2A~H, H3A~D",
     applicableWeldsText: "H2A~H, H3A~D",
     baseMaterial: "1 1/4Cr (SA-387 Gr 11)",
-    grooveAngleDeg: 45.0,
+    grooveAngleDeg: 50.0,
     hasTaper: false,
     hasCladding: true,
     defaultCladThicknessMm: 1.5,
@@ -229,7 +229,7 @@ export const BEVEL_DEFINITIONS: Record<BevelJointType, BevelDefinition> = {
     odCapStyle: "FLUSH",
     idCapProtrusionMaxMm: 0.8,
     isDoubleV: true,
-    idGrooveAngleDeg: 50.0,
+    idGrooveAngleDeg: 45.0,
     defaultWallThicknessMm: 36.0, // Heavy plate section
     gtawRootPass: false,
   },
@@ -250,7 +250,7 @@ export function getBevelDefinition(type?: BevelJointType | string | null): Bevel
   if (type && type in BEVEL_DEFINITIONS) {
     return BEVEL_DEFINITIONS[type as BevelJointType];
   }
-  return BEVEL_DEFINITIONS.TYPE_A_STANDARD;
+  return BEVEL_DEFINITIONS.TYPE_G_HEAD_H1;
 }
 
 /**
@@ -258,7 +258,7 @@ export function getBevelDefinition(type?: BevelJointType | string | null): Bevel
  * Handles formats like "C8", "WELD C8", "C08", "L2A", "SL1", "SC2", "H1B", "C12", etc.
  */
 export function detectBevelTypeFromWeldName(weldName?: string | null): BevelJointType {
-  if (!weldName) return "TYPE_A_STANDARD";
+  if (!weldName) return "TYPE_G_HEAD_H1";
   const clean = weldName.toUpperCase().replace(/\s+/g, "").replace(/^WELD[-_]?/, "");
 
   // 1. Skirt Welds (SL1, SL2, SC2)
@@ -300,5 +300,5 @@ export function detectBevelTypeFromWeldName(weldName?: string | null): BevelJoin
   }
 
   // Fallback to standard shell
-  return "TYPE_A_STANDARD";
+  return "TYPE_G_HEAD_H1";
 }
