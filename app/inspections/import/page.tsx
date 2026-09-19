@@ -59,7 +59,16 @@ import {
   Trash2,
   Wrench,
   Pencil,
-  Building
+  Building,
+  Info,
+  AlertCircle,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  ShieldAlert,
+  Loader2
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -123,6 +132,14 @@ export default function ImportWizardPage() {
   const [savedResult, setSavedResult] = useState<any>(null);
   const [vaultDatasets, setVaultDatasets] = useState<VaultDatasetSummary[]>([]);
 
+  // Diagnostics & Debug State
+  const [sessionDiagnostic, setSessionDiagnostic] = useState<any>(null);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [showDebugDetails, setShowDebugDetails] = useState(false);
+  const [saveProgressText, setSaveProgressText] = useState("");
+  const [copiedDebug, setCopiedDebug] = useState(false);
+
   // Repair & Replaced Sections State
   const [repairZones, setRepairZones] = useState<RepairZone[]>([]);
   const [anomalies, setAnomalies] = useState<DisappearedFlawAnomaly[]>([]);
@@ -167,7 +184,24 @@ export default function ImportWizardPage() {
     }
   };
 
+  const runDiagnosticCheck = async () => {
+    setDiagnosticLoading(true);
+    try {
+      const res = await fetch("/api/debug/auth-check");
+      if (res.ok) {
+        const data = await res.json();
+        setSessionDiagnostic(data);
+      }
+    } catch (e) {
+      console.warn("Diagnostic fetch notice:", e);
+    } finally {
+      setDiagnosticLoading(false);
+    }
+  };
+
   useEffect(() => {
+    runDiagnosticCheck();
+
     getDrumsAndWelds()
       .then((data) => {
         setDrums(data.drums);
@@ -662,6 +696,10 @@ export default function ImportWizardPage() {
     if (!matrixResult) return;
     setLoading(true);
     setErrorMessage("");
+    setDebugInfo(null);
+    setShowDebugDetails(false);
+    setSaveProgressText("Packaging dataset parameters...");
+
     try {
       const vaultId = `vault_${Date.now()}`;
       const name = parsedWorkbook?.filename || selectedFile?.name || `PAUT_Historical_Dataset_${new Date().toISOString().split("T")[0]}.xlsx`;
@@ -677,47 +715,74 @@ export default function ImportWizardPage() {
         };
       });
 
-      // 1. Commit dataset to Database via high-capacity API route (with Server Action fallback)
+      const payloadObj = {
+        drumId: selectedDrumId || 1,
+        filename: name,
+        sizeBytes: selectedFile?.size || 0,
+        mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        matrixResult,
+        targetClientId: selectedClientId || undefined,
+        nominalWallThickness,
+        cladThickness,
+        jointDegrees,
+        weldSpecs: formattedWeldSpecs,
+      };
+
+      const payloadString = JSON.stringify(payloadObj);
+      const payloadSizeKb = Math.round(payloadString.length / 1024);
+
+      setSaveProgressText(`Sending ${payloadSizeKb} KB dataset (${matrixResult.physicalIndications.length} indications, ${matrixResult.observations.length} observations) to database...`);
+
+      // 1. Commit dataset to Database via high-capacity API route
       let dbResult: any = null;
+      let apiFailedResponse: any = null;
+
       try {
         const response = await fetch("/api/inspections/save-matrix", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            drumId: selectedDrumId || 1,
-            filename: name,
-            sizeBytes: selectedFile?.size || 0,
-            mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            matrixResult,
-            targetClientId: selectedClientId || undefined,
-            nominalWallThickness,
-            cladThickness,
-            jointDegrees,
-            weldSpecs: formattedWeldSpecs,
-          }),
+          body: payloadString,
         });
 
-        const resData = await response.json();
+        const resData = await response.json().catch(() => ({}));
         if (!response.ok || !resData.success) {
-          throw new Error(resData.error || `HTTP ${response.status}: Failed to save dataset to database`);
+          apiFailedResponse = {
+            httpStatus: response.status,
+            httpStatusText: response.statusText,
+            serverError: resData.error || `HTTP ${response.status}: Save failed`,
+            serverDebug: resData.debug || null,
+            payloadSizeKb,
+            activeUser: sessionDiagnostic?.session?.user || null,
+          };
+          throw new Error(resData.error || `Server returned HTTP ${response.status} (${response.statusText})`);
         }
         dbResult = resData;
       } catch (apiErr: any) {
-        console.warn("API route save notice:", apiErr.message);
-        // Fallback to Server Action if API route was unreachable
-        dbResult = await commitMatrixDatasetAction({
-          drumId: selectedDrumId || 1,
-          filename: name,
-          sizeBytes: selectedFile?.size || 0,
-          mimeType: selectedFile?.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          matrixResult,
-          targetClientId: selectedClientId || undefined,
-          nominalWallThickness,
-          cladThickness,
-          jointDegrees,
-          weldSpecs: formattedWeldSpecs,
-        });
+        console.warn("API route save result:", apiErr.message);
+
+        // If it was an explicit auth error (401/403) or validation error (400), do NOT try fallback which will fail identically
+        if (apiFailedResponse && (apiFailedResponse.httpStatus === 401 || apiFailedResponse.httpStatus === 403 || apiFailedResponse.httpStatus === 400)) {
+          setDebugInfo(apiFailedResponse);
+          throw apiErr;
+        }
+
+        // Attempt fallback to Server Action only on network/unreachable error
+        setSaveProgressText("API endpoint unreachable. Trying Server Action fallback...");
+        try {
+          dbResult = await commitMatrixDatasetAction(payloadObj);
+        } catch (saErr: any) {
+          setDebugInfo({
+            apiError: apiFailedResponse || apiErr.message,
+            serverActionError: saErr.message,
+            payloadSizeKb,
+            activeUser: sessionDiagnostic?.session?.user || null,
+            hint: "Check if you are signed in with a MASTER account, or if corporate proxy is blocking requests."
+          });
+          throw saErr;
+        }
       }
+
+      setSaveProgressText("Caching dataset in browser local vault...");
 
       // 2. Cache in Local Browser Vault
       await saveDatasetToVault({
@@ -753,6 +818,7 @@ export default function ImportWizardPage() {
       setErrorMessage(err.message || "Failed to save dataset to database");
     } finally {
       setLoading(false);
+      setSaveProgressText("");
     }
   };
 
@@ -776,10 +842,127 @@ export default function ImportWizardPage() {
         )}
       </div>
 
+      {/* Top Diagnostic Status Pill */}
+      {sessionDiagnostic && (
+        <div className="flex flex-wrap items-center justify-between text-xs px-4 py-2 rounded-xl bg-slate-100/90 border border-slate-200 text-slate-600 gap-2">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className={`w-2 h-2 rounded-full ${sessionDiagnostic.database?.status === "connected" ? "bg-emerald-500" : "bg-red-500"}`} />
+              <span>DB: {sessionDiagnostic.database?.status === "connected" ? "Connected (Neon)" : "Disconnected"}</span>
+            </span>
+            <span className="text-slate-300">|</span>
+            <span>
+              User: <strong className="text-slate-800">{sessionDiagnostic.session?.user?.email || "Guest"}</strong>
+            </span>
+            <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase tracking-wider ${sessionDiagnostic.session?.user?.role === "MASTER" ? "bg-emerald-100 text-emerald-800 border border-emerald-200" : "bg-amber-100 text-amber-800 border border-amber-200"}`}>
+              {sessionDiagnostic.session?.user?.role || "CLIENT"}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={runDiagnosticCheck}
+            disabled={diagnosticLoading}
+            className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 hover:text-sky-900 cursor-pointer"
+            title="Refresh Diagnostic Session Status"
+          >
+            <RefreshCw size={11} className={diagnosticLoading ? "animate-spin" : ""} />
+            <span>{diagnosticLoading ? "Checking..." : "Re-check Status"}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Role Warning Banner if user is CLIENT */}
+      {sessionDiagnostic?.session?.user?.role === "CLIENT" && (
+        <div className="p-4 rounded-xl border border-amber-300 bg-amber-50/90 text-amber-900 flex items-start space-x-3 text-sm shadow-2xs">
+          <ShieldAlert className="shrink-0 text-amber-600 mt-0.5" size={20} />
+          <div className="space-y-1">
+            <p className="font-bold">Refinery Client Account Detected ({sessionDiagnostic.session.user.email})</p>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              You are signed in with a <strong>CLIENT</strong> role. Client accounts have read-only inspection review privileges for their assigned Coke Drums. 
+              Uploading and saving datasets into the master platform database requires a <strong>MASTER</strong> engineer account (e.g. <code>master@demo.com</code>).
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Save In-Progress Live Status */}
+      {loading && saveProgressText && (
+        <div className="p-3.5 rounded-xl border border-sky-200 bg-sky-50 text-sky-800 flex items-center space-x-3 text-xs font-semibold shadow-2xs animate-pulse">
+          <Loader2 className="shrink-0 animate-spin text-sky-600" size={18} />
+          <span>{saveProgressText}</span>
+        </div>
+      )}
+
+      {/* Error Banner with Expandable Diagnostic Drawer */}
       {errorMessage && (
-        <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-700 flex items-center space-x-3 text-sm">
-          <AlertTriangle className="shrink-0" size={18} />
-          <span>{errorMessage}</span>
+        <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 space-y-3 text-sm shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <AlertTriangle className="shrink-0 text-red-600" size={20} />
+              <div>
+                <p className="font-bold text-red-900">{errorMessage}</p>
+                <p className="text-xs text-red-700 mt-0.5">
+                  {debugInfo?.serverDebug?.authHint || "Please review the diagnostic report below or verify your login credentials."}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowDebugDetails(!showDebugDetails)}
+                className="text-xs font-semibold px-2.5 py-1 rounded-md border border-red-300 bg-white text-red-800 hover:bg-red-100 flex items-center gap-1 transition cursor-pointer"
+              >
+                <span>{showDebugDetails ? "Hide Debug" : "Diagnostic Report"}</span>
+                {showDebugDetails ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              </button>
+            </div>
+          </div>
+
+          {showDebugDetails && (
+            <div className="mt-3 p-3.5 bg-white rounded-lg border border-red-200 text-xs font-mono space-y-2.5 text-slate-800">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <span className="font-bold text-slate-700 flex items-center gap-1 font-sans">
+                  <Info size={14} className="text-sky-600" /> System Diagnostic Report
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify({ errorMessage, debugInfo, sessionDiagnostic }, null, 2));
+                    setCopiedDebug(true);
+                    setTimeout(() => setCopiedDebug(false), 2000);
+                  }}
+                  className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 text-[11px] font-sans transition cursor-pointer"
+                >
+                  {copiedDebug ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                  <span>{copiedDebug ? "Copied!" : "Copy Report"}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                <div><strong className="text-slate-500">Active User:</strong> {sessionDiagnostic?.session?.user?.email || "None detected"}</div>
+                <div>
+                  <strong className="text-slate-500">Active Role:</strong>{" "}
+                  <span className={`px-1.5 py-0.5 rounded font-bold ${sessionDiagnostic?.session?.user?.role === "MASTER" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                    {sessionDiagnostic?.session?.user?.role || "GUEST"}
+                  </span>
+                </div>
+                <div><strong className="text-slate-500">DB Status:</strong> <span className={sessionDiagnostic?.database?.status === "connected" ? "text-emerald-600 font-bold" : "text-red-600 font-bold"}>{sessionDiagnostic?.database?.status || "Unknown"}</span></div>
+                <div><strong className="text-slate-500">Vercel Host:</strong> {sessionDiagnostic?.network?.host || "Vercel Cloud"}</div>
+                {debugInfo?.httpStatus && <div><strong className="text-slate-500">HTTP Status:</strong> <span className="font-bold text-red-600">{debugInfo.httpStatus} {debugInfo.httpStatusText}</span></div>}
+                {debugInfo?.payloadSizeKb && <div><strong className="text-slate-500">Payload Size:</strong> {debugInfo.payloadSizeKb} KB</div>}
+              </div>
+
+              {debugInfo?.serverDebug && (
+                <div className="pt-2 border-t border-slate-100">
+                  <strong className="text-slate-500 font-sans">Server Diagnostic Details:</strong>
+                  <pre className="p-2 mt-1 bg-slate-50 rounded border border-slate-200 overflow-x-auto text-[10px] text-slate-700">
+                    {JSON.stringify(debugInfo.serverDebug, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

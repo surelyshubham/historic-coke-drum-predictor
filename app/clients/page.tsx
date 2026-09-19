@@ -30,6 +30,12 @@ export default async function ClientsPage() {
       initialClients={clientList}
       allDrums={allDrums}
       currentClientUser={currentClientUser}
+      currentUser={{
+        email: session?.user?.email || null,
+        name: session?.user?.name || null,
+        role: role,
+        id: (session?.user as any)?.id || null,
+      }}
     />
   );
 }

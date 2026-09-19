@@ -22,9 +22,19 @@ export async function POST(req: NextRequest) {
   try {
     const session = await auth();
     const role = (session?.user as any)?.role;
+    const userEmail = session?.user?.email || "No email in session";
     if (role !== "MASTER") {
       return NextResponse.json(
-        { success: false, error: "Unauthorized: Only MASTER engineers can save datasets to the platform." },
+        { 
+          success: false, 
+          error: `Unauthorized: Current user '${userEmail}' has role '${role || "GUEST"}'. Only MASTER accounts (e.g. master@demo.com) can save datasets to the central database.`,
+          debug: {
+            userEmail,
+            userRole: role || "GUEST",
+            sessionExists: !!session,
+            authHint: "Please sign in with a MASTER account to commit datasets to the central database."
+          }
+        },
         { status: 401 }
       );
     }
@@ -363,7 +373,18 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("Critical error in /api/inspections/save-matrix:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to save dataset to database" },
+      { 
+        success: false, 
+        error: error.message || "Failed to save dataset to database",
+        debug: {
+          errorName: error.name || "Error",
+          errorCode: error.code || null,
+          detail: error.detail || null,
+          hint: error.hint || null,
+          table: error.table || null,
+          routine: error.routine || null,
+        }
+      },
       { status: 500 }
     );
   }

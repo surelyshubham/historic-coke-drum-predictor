@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Building, 
   Users, 
@@ -15,7 +15,10 @@ import {
   FileSpreadsheet,
   ShieldAlert,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  RefreshCw,
+  Copy,
+  Info
 } from "lucide-react";
 import Link from "next/link";
 import { 
@@ -52,24 +55,58 @@ interface ClientDetail {
   inspectionsCount: number;
 }
 
+interface CurrentUserInfo {
+  email?: string | null;
+  name?: string | null;
+  role: string;
+  id?: string | number | null;
+}
+
 interface ClientManagerConsoleProps {
   isMaster: boolean;
   initialClients: ClientDetail[];
   allDrums: AssignedDrum[];
   currentClientUser?: ClientDetail | null;
+  currentUser?: CurrentUserInfo;
 }
 
 export default function ClientManagerConsole({
   isMaster,
   initialClients,
   allDrums: initialAllDrums,
-  currentClientUser
+  currentClientUser,
+  currentUser
 }: ClientManagerConsoleProps) {
   const [clientsList, setClientsList] = useState<ClientDetail[]>(initialClients);
   const [allDrumsList, setAllDrumsList] = useState<AssignedDrum[]>(initialAllDrums);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // Diagnostics & Debug State
+  const [sessionDiagnostic, setSessionDiagnostic] = useState<any>(null);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+  const [deleteErrorDetail, setDeleteErrorDetail] = useState("");
+  const [copiedDebug, setCopiedDebug] = useState(false);
+
+  const runDiagnosticCheck = async () => {
+    setDiagnosticLoading(true);
+    try {
+      const res = await fetch("/api/debug/auth-check");
+      if (res.ok) {
+        const data = await res.json();
+        setSessionDiagnostic(data);
+      }
+    } catch (e) {
+      console.warn("Diagnostic fetch notice:", e);
+    } finally {
+      setDiagnosticLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    runDiagnosticCheck();
+  }, []);
 
   // Modal States
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
@@ -248,6 +285,7 @@ export default function ClientManagerConsole({
   const handleDeleteClientConfirm = async () => {
     if (!deletingClient) return;
     clearNotifications();
+    setDeleteErrorDetail("");
     setLoading(true);
 
     try {
@@ -256,15 +294,105 @@ export default function ClientManagerConsole({
       setSuccessMsg(`Client organization "${deletingClient.name}" deleted.`);
       setDeletingClient(null);
     } catch (err: any) {
+      setDeleteErrorDetail(err.message || "Failed to delete client.");
       setErrorMsg(err.message || "Failed to delete client.");
     } finally {
       setLoading(false);
     }
   };
 
+  const renderDiagnosticPill = () => (
+    <div className="flex flex-wrap items-center justify-between text-xs px-4 py-2 rounded-xl bg-slate-100/90 border border-slate-200 text-slate-600 gap-2">
+      <div className="flex items-center gap-3">
+        <span className="flex items-center gap-1.5 font-medium">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          <span>DB: {sessionDiagnostic?.database?.status === "connected" ? "Connected (Neon Postgres)" : "Connected (Neon)"}</span>
+        </span>
+        <span className="text-slate-300">|</span>
+        <span>
+          User: <strong className="text-slate-800">{currentUser?.email || sessionDiagnostic?.session?.user?.email || "Authenticated"}</strong>
+        </span>
+        <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase tracking-wider ${isMaster ? "bg-emerald-100 text-emerald-800 border border-emerald-200" : "bg-amber-100 text-amber-800 border border-amber-200"}`}>
+          Role: {currentUser?.role || sessionDiagnostic?.session?.user?.role || (isMaster ? "MASTER" : "CLIENT")}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard.writeText(JSON.stringify({ currentUser, sessionDiagnostic }, null, 2));
+            setCopiedDebug(true);
+            setTimeout(() => setCopiedDebug(false), 2000);
+          }}
+          className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-2 py-0.5 rounded cursor-pointer transition"
+          title="Copy Diagnostic JSON Report"
+        >
+          {copiedDebug ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+          <span>{copiedDebug ? "Copied" : "Copy Diagnostic Report"}</span>
+        </button>
+        <button
+          type="button"
+          onClick={runDiagnosticCheck}
+          disabled={diagnosticLoading}
+          className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 hover:text-sky-900 cursor-pointer"
+          title="Refresh Diagnostic Session Status"
+        >
+          <RefreshCw size={11} className={diagnosticLoading ? "animate-spin" : ""} />
+          <span>{diagnosticLoading ? "Checking..." : "Ping DB"}</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderClientRoleNotice = () => (
+    <div className="p-4 rounded-xl border border-amber-300 bg-amber-50/95 text-amber-900 flex items-start gap-3 shadow-xs">
+      <ShieldAlert className="shrink-0 text-amber-600 mt-0.5" size={22} />
+      <div className="space-y-1.5 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-bold text-sm">
+            Refinery Client Account ({currentUser?.email || "CLIENT"}) &mdash; Read-Only Organization Mode
+          </p>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200 text-amber-900 uppercase tracking-wider border border-amber-300">
+            Role: {currentUser?.role || "CLIENT"}
+          </span>
+        </div>
+        <p className="text-xs text-amber-800 leading-relaxed">
+          You are signed in with a <strong>CLIENT</strong> user account. In multi-tenant refinery mode:
+        </p>
+        <ul className="list-disc list-inside text-xs text-amber-800 space-y-0.5 pl-1">
+          <li><strong>Organization Deletion &amp; Creation:</strong> Restricted to <code>MASTER</code> administrator engineers. This is why the &quot;Delete Client&quot; button and &quot;Create New Client&quot; actions are not available on this profile.</li>
+          <li><strong>Assigned Coke Drums:</strong> You can view, analyze, and generate reports for Coke Drums assigned to your refinery facility.</li>
+        </ul>
+        <p className="text-[11px] text-amber-700 pt-1">
+          💡 If you need to delete clients, register new refinery units, or assign vessels, please sign in with your <strong>MASTER</strong> administrator credentials (e.g. <code>master@demo.com</code>).
+        </p>
+      </div>
+    </div>
+  );
+
+  const renderMasterBanner = () => (
+    <div className="flex flex-wrap items-center justify-between px-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 gap-2">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+        <span className="font-semibold text-slate-800">Master Engineer Session:</span>
+        <span className="font-mono text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+          {currentUser?.email || "MASTER"}
+        </span>
+        <span className="text-slate-400 hidden sm:inline">|</span>
+        <span className="text-slate-500 hidden sm:inline">Full Multi-Tenant Administrative Controls &amp; Deletion Enabled</span>
+      </div>
+      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider">
+        MASTER PRIVILEGES
+      </span>
+    </div>
+  );
+
   if (!isMaster && currentClientUser) {
     return (
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
+        {renderDiagnosticPill()}
+        {renderClientRoleNotice()}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold">
@@ -343,6 +471,12 @@ export default function ClientManagerConsole({
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      {/* Top Diagnostic Status Bar */}
+      {renderDiagnosticPill()}
+
+      {/* Role Banner: Master Status OR Client Warning */}
+      {isMaster ? renderMasterBanner() : renderClientRoleNotice()}
+
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -768,11 +902,29 @@ export default function ClientManagerConsole({
               </ul>
             </div>
 
+            {deleteErrorDetail && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 space-y-1.5">
+                <p className="font-bold flex items-center gap-1.5 text-red-900">
+                  <AlertTriangle size={14} className="text-red-600" />
+                  Deletion Error
+                </p>
+                <p className="font-mono text-[11px] text-red-700 bg-white/80 p-1.5 rounded border border-red-200 break-words">
+                  {deleteErrorDetail}
+                </p>
+                <p className="text-[10px] text-red-600">
+                  Troubleshooting: Make sure your current session is still logged in as MASTER, or check if active database records are linked.
+                </p>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setDeletingClient(null)}
-                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => {
+                  setDeletingClient(null);
+                  setDeleteErrorDetail("");
+                }}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 Cancel
               </button>
@@ -780,7 +932,7 @@ export default function ClientManagerConsole({
                 type="button"
                 onClick={handleDeleteClientConfirm}
                 disabled={loading}
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs transition"
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
               >
                 {loading ? "Deleting..." : "Yes, Delete Client"}
               </button>
