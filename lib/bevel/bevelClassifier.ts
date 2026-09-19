@@ -258,47 +258,6 @@ export function getBevelDefinition(type?: BevelJointType | string | null): Bevel
  * Handles formats like "C8", "WELD C8", "C08", "L2A", "SL1", "SC2", "H1B", "C12", etc.
  */
 export function detectBevelTypeFromWeldName(weldName?: string | null): BevelJointType {
-  if (!weldName) return "TYPE_G_HEAD_H1";
-  const clean = weldName.toUpperCase().replace(/\s+/g, "").replace(/^WELD[-_]?/, "");
-
-  // 1. Skirt Welds (SL1, SL2, SC2)
-  if (/^S[LC]\d/i.test(clean) || clean.includes("SKIRT")) {
-    return "TYPE_E_SKIRT_UNCLAD";
-  }
-
-  // 2. Head Welds (H1, H2, H3)
-  if (/^H1[A-Z]?$/i.test(clean)) {
-    return "TYPE_G_HEAD_H1";
-  }
-  if (/^H[23][A-Z]?$/i.test(clean)) {
-    return "TYPE_H_HEAD_H2_H3";
-  }
-
-  // 3. Circumferential Seam C12
-  if (/^C0?12$/i.test(clean)) {
-    return "TYPE_F_HEAVY_CROWN_C12";
-  }
-
-  // 4. Circumferential Seam C8
-  if (/^C0?8$/i.test(clean)) {
-    return "TYPE_C_TAPER_C8";
-  }
-
-  // 5. Circumferential Seams C1, C9, C10, C11
-  if (/^C0?[19]$/i.test(clean) || /^C(10|11)$/i.test(clean)) {
-    return "TYPE_D_TAPER_HEAD";
-  }
-
-  // 6. Longitudinal Seams L1 through L7 (GTAW root pass)
-  if (/^L0?[1-7][A-D]?$/i.test(clean)) {
-    return "TYPE_B_GTAW_ROOT";
-  }
-
-  // 7. Circumferential C2~C7 and Long L8, L9 (Standard Single-V)
-  if (/^C0?[2-7]$/i.test(clean) || /^L0?[89][A-D]?$/i.test(clean)) {
-    return "TYPE_A_STANDARD";
-  }
-
-  // Fallback to standard shell
+  // As requested, Type G is the universal default, bypassing regex auto-detection.
   return "TYPE_G_HEAD_H1";
 }
